@@ -28,6 +28,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Debug builds use a separate app ID: install alongside existing MemoTalk without overwriting its notes.
+            applicationIdSuffix '.test'
+        }
         release {
             minifyEnabled false
             if (canSignRelease) signingConfig signingConfigs.release
