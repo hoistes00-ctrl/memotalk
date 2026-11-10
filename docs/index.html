@@ -47,7 +47,7 @@
       const links = { android: $('android-link'), windows: $('windows-link') };
       const expected = { android: 'MemoTalk-Android.apk', windows: 'MemoTalk-Windows-Setup.exe' };
       const androidTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/87ab690c590918e82bb33b7b693d19290c7766a1/MemoTalk-Android-test.apk';
-      const windowsTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/53cbeabde14a4c547eed1d4ec6cfaba6927248fb/MemoTalk-Windows-Setup.exe';
+      const windowsTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe';
       const downloads = { android: null, windows: null };
       $('release-link').href = releases;
       if (os === 'android') {
@@ -78,7 +78,7 @@
       }
       // Public unsigned Windows installer; direct link does not require Android Studio or build tools.
       links.windows.href = windowsTestUrl;
-      links.windows.textContent = 'Windows v17.0.1 설치 파일 다운로드 (시험판)';
+      links.windows.textContent = 'Windows v17.0.2 설치 파일 다운로드 (시험판)';
       if (os === 'windows') {
         main.href = windowsTestUrl;
         main.textContent = 'Windows 설치 파일(EXE) 다운로드';
