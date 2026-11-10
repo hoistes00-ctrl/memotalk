@@ -9,20 +9,22 @@
 
 ## Android 시험용 APK 바로 설치 (Android Studio 불필요)
 
-**[갤럭시용 MemoTalk v17 시험 APK 다운로드](https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/android-downloads/MemoTalk-Android-test.apk)**
+**[갤럭시용 MemoTalk v17 시험 APK 다운로드](https://github.com/hoistes00-ctrl/memotalk/raw/87ab690c590918e82bb33b7b693d19290c7766a1/MemoTalk-Android-test.apk)**
 
 이 공개 시험판은 GitHub Actions에서 직접 빌드된 APK입니다. Android 휴대폰에서 파일을 다운로드한 후, 다운로드된 APK를 열어 설치를 승인하면 됩니다. 휴대폰에서 '출처를 알 수 없는 앱 설치' 권한 확인이 필요할 수 있습니다.
 
-**중요:** 이 APK는 임시 디버그 서명된 시험판입니다. 기존에 설치된 메모톡과 서명이 다르면 기존 앱 위에 업데이트가 불가능합니다. 다음 시험판에서도 같은 서명이 유지된다는 보장이 없습니다. **기존 앱을 삭제하지 말고, 먼저 기존 메모를 JSON으로 백업하세요.** 이 APK는 정식 장기 업데이트용 버전이 아닙니다.
+**중요:** 새 시험판은 앱 식별자가 `kr.memotalk.app.test`이고, 휴대폰에 **‘메모톡 테스트’**로 따로 설치됩니다. 기존 `kr.memotalk.app` 앱을 삭제하지 않고 나란히 사용할 수 있도록 변경했습니다. 두 앱의 데이터는 자동 공유되지 않으므로 기존 메모를 옮길 때는 기존 앱에서 JSON을 백업하고 새 시험판에 가져오세요. 시험판은 임시 디버그 서명으로 제작하며 이후 시험 APK가 같은 서명으로 업데이트된다는 보장은 없습니다. 기존 앱의 백업 파일은 GitHub에 올리지 마세요.
 
 - [APK 파일 및 SHA-256 체크섬 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/android-downloads)
 - [Android 시험판 빌드 이력](https://github.com/hoistes00-ctrl/memotalk/actions/workflows/android-test-apk.yml)
 
-## Windows용 EXE 설치 파일 바로 다운로드
+## Windows용 EXE 설치 파일 바로 다운로드 (v17.0.1)
 
-**[Windows 64비트 메모톡 v17 설치 프로그램 받기](https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe)**
+**[Windows 64비트 메모톡 v17.0.1 설치 프로그램 받기](https://github.com/hoistes00-ctrl/memotalk/raw/53cbeabde14a4c547eed1d4ec6cfaba6927248fb/MemoTalk-Windows-Setup.exe)**
 
 별도로 Node.js나 빌드 도구를 설치하지 않아도 되는 Windows 64비트용 Electron 설치 프로그램입니다. 파일 크기는 약 81.8MB입니다. [다운로드 파일의 SHA-256 체크섬](https://github.com/hoistes00-ctrl/memotalk/blob/windows-downloads/SHA256SUMS-Windows.txt)도 확인할 수 있습니다.
+
+**v17.0.1 변경사항:** Windows 목록의 메모방을 마우스로 드래그해 같은 폴더 안에서 위아래 순서를 바꿀 수 있습니다. 변경 순서는 해당 PC의 로컬 설정에 저장됩니다. 기존 폴더 이동과 메모 내용은 그대로 유지합니다.
 
 **안전 안내:** 아직 코드 서명 인증서가 없는 시험판이므로 Windows SmartScreen에서 알 수 없는 게시자 경고가 나타날 수 있습니다. 설치 전 파일 출처를 확인하고, 기존 메모가 있다면 먼저 JSON 백업을 내보내세요. 실제 Windows PC에서의 설치 및 기존 데이터 유지 검증은 아직 완료되지 않았습니다.
 
