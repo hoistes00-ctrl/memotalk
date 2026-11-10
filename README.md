@@ -16,18 +16,13 @@ Android에서 `메모톡`이라는 이름으로 기존 앱을 업데이트하려
 
 기존 `메모톡 테스트` (`kr.memotalk.app.test`)는 정식 앱과 별개이므로 데이터가 자동 이전되지 않습니다. **기존 앱을 삭제하지 말고 JSON 백업과 복원 계획을 확인하세요.**
 
-## Android v17.0.2 시험용 APK 설치 (Android Studio 불필요)
+## 이전 Android 시험 빌드 보관 안내
 
-**[갤럭시용 MemoTalk v17.0.2 시험 APK 다운로드](https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/android-downloads/MemoTalk-Android-test.apk)**
+과거의 `kr.memotalk.app.test`는 기존 `kr.memotalk.app`와 **다른 앱**으로 설치되었던 별도 시험 빌드입니다. 이 APK는 신규 설치나 기존 메모톡 업그레이드용으로 더 이상 안내하지 않습니다.
 
-이번 v17.0.2에는 휴지통 바로가기, 길게 누르기 문장 선택·복사, 개선된 목록 드래그가 포함되어 있습니다.
+이전에 시험 앱에 메모를 저장한 사용자를 위해 [이전 APK 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/android-downloads)는 삭제하지 않았습니다. 이전 시험 앱과 정식 앱 사이의 메모 데이터는 자동으로 이전되지 않습니다. 기존 앱을 삭제하기 전에 메모 JSON 백업을 확인하세요.
 
-이 공개 시험판은 GitHub Actions에서 직접 빌드된 APK입니다. Android 휴대폰에서 파일을 다운로드한 후, 다운로드된 APK를 열어 설치를 승인하면 됩니다. 휴대폰에서 '출처를 알 수 없는 앱 설치' 권한 확인이 필요할 수 있습니다.
-
-**중요:** 새 시험판은 앱 식별자가 `kr.memotalk.app.test`이고, 휴대폰에 **‘메모톡 테스트’**로 따로 설치됩니다. 기존 `kr.memotalk.app` 앱을 삭제하지 않고 나란히 사용할 수 있도록 변경했습니다. 두 앱의 데이터는 자동 공유되지 않으므로 기존 메모를 옮길 때는 기존 앱에서 JSON을 백업하고 새 시험판에 가져오세요. 시험판은 GitHub Actions의 일회성 디버그 서명으로 제작되므로 기존 ‘메모톡 테스트’와도 서명이 달라 덮어 설치에 실패할 수 있습니다. 이 경우 기존 앱을 삭제하기 전에 메모 JSON 백업을 확보하고 복원 방법을 확인해야 합니다. 이후 시험 APK도 같은 서명으로 업데이트된다는 보장은 없습니다. 기존 앱의 백업 파일은 GitHub에 올리지 마세요.
-
-- [APK 파일 및 SHA-256 체크섬 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/android-downloads)
-- [Android 시험판 빌드 이력](https://github.com/hoistes00-ctrl/memotalk/actions/workflows/android-test-apk.yml)
+이제 메모톡 공식 다운로드 페이지는 `kr.memotalk.app` 정식 서명 APK가 실제로 게시되었을 때만 Android 다운로드 버튼을 활성화합니다. 그 전에는 [서명 및 기존 앱 업데이트 안내](SIGNING.md)를 확인하세요.
 
 ## Windows용 EXE 설치 파일 바로 다운로드 (v17.0.2)
 
