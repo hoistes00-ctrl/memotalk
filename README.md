@@ -18,6 +18,17 @@
 - [APK 파일 및 SHA-256 체크섬 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/android-downloads)
 - [Android 시험판 빌드 이력](https://github.com/hoistes00-ctrl/memotalk/actions/workflows/android-test-apk.yml)
 
+## Windows용 EXE 설치 파일 바로 다운로드
+
+**[Windows 64비트 메모톡 v17 설치 프로그램 받기](https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe)**
+
+별도로 Node.js나 빌드 도구를 설치하지 않아도 되는 Windows 64비트용 Electron 설치 프로그램입니다. 파일 크기는 약 81.8MB입니다. [다운로드 파일의 SHA-256 체크섬](https://github.com/hoistes00-ctrl/memotalk/blob/windows-downloads/SHA256SUMS-Windows.txt)도 확인할 수 있습니다.
+
+**안전 안내:** 아직 코드 서명 인증서가 없는 시험판이므로 Windows SmartScreen에서 알 수 없는 게시자 경고가 나타날 수 있습니다. 설치 전 파일 출처를 확인하고, 기존 메모가 있다면 먼저 JSON 백업을 내보내세요. 실제 Windows PC에서의 설치 및 기존 데이터 유지 검증은 아직 완료되지 않았습니다.
+
+- [Windows EXE 자동 빌드 결과](https://github.com/hoistes00-ctrl/memotalk/actions/workflows/windows-installer.yml)
+- [다운로드 파일 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/windows-downloads)
+
 ## 정식 다운로드 안내
 
 장기 업데이트를 위한 정식 서명 APK와 Windows EXE는 [Releases](../../releases)에 별도 게시할 예정입니다. 다운로드 페이지는 `docs/index.html`을 GitHub Pages로 활성화하면 사용할 수 있습니다. 정식 서명키 설정과 빌드·설치 검증이 끝나기 전에는 시험판을 정식 APK로 표시하지 않습니다.
