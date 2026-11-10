@@ -1,4 +1,4 @@
-name: Publish MemoTalk Android v17.0.2 test APK
+name: Validate Android debug build (no public release)
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: memotalk-android-test-apk
@@ -69,24 +69,3 @@ jobs:
           path: |
             release-files/MemoTalk-Android-test.apk
             release-files/SHA256SUMS-Android-test.txt
-
-      - name: Publish verified APK to public download branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp release-files/MemoTalk-Android-test.apk "$RUNNER_TEMP/MemoTalk-Android-test.apk"
-          cp release-files/SHA256SUMS-Android-test.txt "$RUNNER_TEMP/SHA256SUMS-Android-test.txt"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch --orphan android-downloads
-          git rm -rf . >/dev/null 2>&1 || true
-          cp "$RUNNER_TEMP/MemoTalk-Android-test.apk" ./MemoTalk-Android-test.apk
-          cp "$RUNNER_TEMP/SHA256SUMS-Android-test.txt" ./SHA256SUMS-Android-test.txt
-          printf '%s\n' \
-            'MemoTalk Android v17.0.2: kr.memotalk.app.test (separate test app)' \
-            'The APK is debug-signed using a temporary CI key.' \
-            'Existing installs may fail to update if the signature differs. Save a JSON backup first; do not uninstall any app without verified backup.' \
-            'This package does not replace kr.memotalk.app and does not automatically inherit its data.' > README.txt
-          git add MemoTalk-Android-test.apk SHA256SUMS-Android-test.txt README.txt
-          git commit -m "Publish MemoTalk v17.0.2 Android test APK"
-          git push origin HEAD:refs/heads/android-downloads --force
