@@ -21,32 +21,92 @@
     <p id="device-description">운영체제를 확인하고 있습니다.</p>
     <a class="button" id="device-link" href="#downloads">다운로드 파일 선택</a>
   </section>
+  <p id="release-status" role="status" aria-live="polite" style="margin:12px 0 20px">GitHub 공개 버전을 확인 중입니다.</p>
   <section class="card" id="downloads">
     <h2>다른 기기용 받기</h2>
-    <a class="button secondary" id="android-link" href="#">Android APK</a>
-    <a class="button secondary" id="windows-link" href="#">Windows 64비트 설치 파일(EXE)</a>
-    <a class="button secondary" id="release-link" href="#">모든 버전 보기</a>
+    <a class="button secondary" id="android-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">Android APK · 배포 준비 중</a>
+    <a class="button secondary" id="windows-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">Windows 설치 파일 · 배포 준비 중</a>
+    <a class="button secondary" id="release-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">모든 버전 보기</a>
   </section>
   <small>설치 전 기존 메모를 JSON으로 백업하세요. 정식 APK가 기존 디버그 APK와 서명이 다르면 덮어 설치가 불가능합니다. 릴리스가 아직 없으면 다운로드 링크가 열리지 않을 수 있습니다.</small>
   <script>
     (() => {
-      const owner=location.hostname.endsWith('.github.io')?location.hostname.slice(0,-'.github.io'.length):'';
-      const repo=location.pathname.split('/').filter(Boolean)[0]||'MemoTalk';
-      if(!owner){document.querySelector('#device-description').textContent='GitHub Pages에 게시하면 다운로드 링크가 활성화됩니다.';return;}
-      const base=`https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases`;
-      const a=base+'/latest/download/MemoTalk-Android.apk';
-      const w=base+'/latest/download/MemoTalk-Windows-Setup.exe';
-      document.querySelector('#android-link').href=a;
-      document.querySelector('#windows-link').href=w;
-      document.querySelector('#release-link').href=base;
-      const android=/Android/i.test(navigator.userAgent);
-      const windows=/Windows NT/i.test(navigator.userAgent);
-      const title=document.querySelector('#device-title');
-      const description=document.querySelector('#device-description');
-      const link=document.querySelector('#device-link');
-      if(android){title.textContent='Android용 메모톡';description.textContent='휴대폰에 설치할 APK 파일';link.textContent='Android APK 다운로드';link.href=a;}
-      else if(windows){title.textContent='Windows용 메모톡';description.textContent='Windows 64비트 설치 프로그램';link.textContent='Windows EXE 다운로드';link.href=w;}
-      else{title.textContent='기기에 맞는 버전을 선택하세요';description.textContent='현재 기기를 자동으로 구분하지 못했습니다.';link.textContent='파일 목록 보기';link.href='#downloads';}
+      'use strict';
+      const repo = 'hoistes00-ctrl/memotalk';
+      const releases = 'https://github.com/' + repo + '/releases';
+      const latestApi = 'https://api.github.com/repos/' + repo + '/releases/latest';
+      const $ = id => document.getElementById(id);
+      const os = /Android/i.test(navigator.userAgent) ? 'android' :
+        /Windows NT/i.test(navigator.userAgent) ? 'windows' : null;
+      const main = $('device-link');
+      const title = $('device-title');
+      const description = $('device-description');
+      const status = $('release-status');
+      const links = { android: $('android-link'), windows: $('windows-link') };
+      const expected = { android: 'MemoTalk-Android.apk', windows: 'MemoTalk-Windows-Setup.exe' };
+      const downloads = { android: null, windows: null };
+      $('release-link').href = releases;
+      if (os === 'android') {
+        title.textContent = 'Android용 메모톡';
+        description.textContent = '갤럭시 등 Android 기기용 APK 파일';
+      } else if (os === 'windows') {
+        title.textContent = 'Windows용 메모톡';
+        description.textContent = 'Windows 64비트 설치 프로그램';
+      } else {
+        title.textContent = '사용할 기기를 선택하세요';
+        description.textContent = '현재 기기를 자동으로 구분하지 못했습니다.';
+      }
+      main.textContent = '다운로드 파일 선택';
+      main.href = '#downloads';
+      for (const type of Object.keys(links)) {
+        links[type].href = releases;
+        links[type].textContent = type === 'android'
+          ? 'Android APK · 공개 릴리스 확인'
+          : 'Windows EXE · 공개 릴리스 확인';
+      }
+      function safeAssetUrl(asset, name) {
+        if (!asset || asset.name !== name || typeof asset.browser_download_url !== 'string') return null;
+        try {
+          const url = new URL(asset.browser_download_url);
+          return url.protocol === 'https:' && url.hostname === 'github.com' &&
+            url.pathname.startsWith('/' + repo + '/releases/download/') &&
+            url.pathname.endsWith('/' + name) ? url.href : null;
+        } catch (_) { return null; }
+      }
+      async function checkRelease() {
+        try {
+          const response = await fetch(latestApi, { headers: { Accept: 'application/vnd.github+json' } });
+          if (response.status === 404) {
+            status.textContent = '공개 설치 파일 준비 중 · 현재 소스코드만 공개되어 있습니다.';
+            return;
+          }
+          if (!response.ok) throw Error('HTTP ' + response.status);
+          const release = await response.json();
+          const assets = Array.isArray(release.assets) ? release.assets : [];
+          for (const type of Object.keys(expected)) {
+            downloads[type] = assets.map(a => safeAssetUrl(a, expected[type])).find(Boolean) || null;
+            if (downloads[type]) {
+              links[type].href = downloads[type];
+              links[type].textContent = type === 'android' ? 'Android APK 다운로드' : 'Windows EXE 다운로드';
+            }
+          }
+          const count = Object.values(downloads).filter(Boolean).length;
+          const version = typeof release.tag_name === 'string' ? release.tag_name : '최신 버전';
+          status.textContent = count
+            ? '공개 버전 ' + version + ' · 설치 파일 ' + count + '종 다운로드 가능'
+            : '릴리스 ' + version + ' · 설치 파일은 아직 준비 중입니다.';
+          if (os && downloads[os]) {
+            main.href = downloads[os];
+            main.textContent = os === 'android' ? 'Android APK 다운로드' : 'Windows EXE 다운로드';
+            description.textContent += ' · 현재 다운로드 가능';
+          } else if (os) {
+            description.textContent += ' · 아직 설치 파일 준비 중';
+          }
+        } catch (_) {
+          status.textContent = '릴리스 정보를 확인할 수 없습니다. GitHub Releases에서 직접 확인해 주세요.';
+        }
+      }
+      checkRelease();
     })();
   </script>
 </body>
