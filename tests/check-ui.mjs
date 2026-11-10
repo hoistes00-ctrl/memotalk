@@ -27,4 +27,13 @@ assert.ok(splitAt>=0 && splitEnd>splitAt,'Sentence splitting function is present
 const sentences=vm.runInNewContext(shared.slice(splitAt,splitEnd)+'\nmemoSentenceUnits');
 assert.deepEqual(Array.from(sentences('첫 문장. 둘째 문장!\n셋째 문장?')),['첫 문장.','둘째 문장!','셋째 문장?']);
 assert.deepEqual(Array.from(sentences('안녕하세요')),['안녕하세요']);
+// The Android WebView applies all physical system-bar and IME insets natively.
+// Native WebView must not apply safe-area CSS insets a second time.
+assert.match(shared,/html\.native-android\{--memo-safe-top:0px;--memo-safe-right:0px;--memo-safe-bottom:0px;--memo-safe-left:0px\}/);
+assert.match(shared,/if\(window\.AndroidMemoTalk\)document\.documentElement\.classList\.add\('native-android'\)/);
+const envUses=[...shared.matchAll(/env\(safe-area-inset-(?:top|right|bottom|left),0px\)/g)];
+assert.equal(envUses.length,4,'Only the four browser fallback declarations may use env(safe-area-inset) directly');
+const mobileActivity=fs.readFileSync('android/app/src/main/java/kr/memotalk/app/MainActivity.java','utf8');
+assert.match(mobileActivity,/setOnApplyWindowInsetsListener/);
+assert.match(mobileActivity,/WindowInsets\.Type\.systemBars\(\)/);
 console.log('MemoTalk UI, multi-window, trash and sentence-copy source checks passed.');
