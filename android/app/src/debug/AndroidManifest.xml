@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Keep test builds visually distinct and store their data in a separate package. -->
+    <application android:label="메모톡 테스트" />
+</manifest>
