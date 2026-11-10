@@ -22,6 +22,17 @@
 .list.grid-view .section-label{grid-column:1/-1;padding:6px 0 0;}
 .list.grid-view .empty{grid-column:1/-1;}
 </style>
+<style>
+@media (min-width:760px){.app.list-collapsed .pane-list{display:none}.app.list-collapsed .pane-room{flex:1 1 100%;min-width:0}.desktop-feature{display:grid}}
+@media (max-width:759px){.desktop-feature{display:none!important}}
+.memo-sentence-row{display:flex;align-items:flex-start;gap:10px;padding:10px 3px;border-bottom:1px solid var(--line)}
+.memo-sentence-row label{flex:1;min-width:0;display:flex;align-items:flex-start;gap:9px;white-space:pre-wrap;overflow-wrap:anywhere}
+.memo-sentence-row label input{flex:0 0 auto;margin-top:5px;accent-color:var(--accent)}
+.memo-sentence-row button{flex:0 0 auto;border-radius:8px;padding:7px 9px;background:var(--surface-2);font-size:12px}
+.memo-sentence-toolbar{display:flex;align-items:center;gap:9px;margin:12px 0;flex-wrap:wrap}
+.memo-sentence-toolbar button{border-radius:9px;background:var(--surface-2);padding:9px 12px}
+.memo-sentence-toolbar .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
+</style>
 <title>메모톡 v17 — 자동 백업과 휴지통</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -388,6 +399,7 @@ body{position:relative;margin:0}
       <h1>메모톡</h1>
       <button class="ibtn" id="btn-layout" aria-label="격자형 보기로 전환" title="목록/격자 보기"></button>
       <button class="ibtn" id="btn-gsearch" aria-label="전체 검색"></button>
+      <button class="ibtn" id="btn-trash-shortcut" aria-label="휴지통 열기" title="휴지통 · 삭제 항목 복원"></button>
       <button class="ibtn" id="btn-more" aria-label="더보기"></button>
     </header>
     <div class="create-tools gut" role="group" aria-label="새 항목 만들기">
@@ -422,10 +434,12 @@ body{position:relative;margin:0}
     <div id="room" hidden style="display:contents">
       <header class="hdr room-hdr gut">
         <button class="ibtn back" id="btn-back" aria-label="목록으로"></button>
+        <button class="ibtn desktop-feature" id="btn-toggle-list" aria-label="목록창 숨기기" title="목록창 숨기기" aria-pressed="false" type="button">☰</button>
         <div class="room-title"><b id="room-name"></b><small id="room-sub"></small></div>
         <button class="label-shortcut" id="btn-room-labels" type="button" aria-label="현재 메모방 라벨 편집" aria-haspopup="dialog">라벨</button>
         <button class="ibtn" id="btn-msg-layout" aria-label="메모 격자 보기" title="메모 보기 전환"></button>
         <button class="ibtn" id="btn-rsearch" aria-label="대화 검색"></button>
+        <button class="ibtn desktop-feature" id="btn-popout" aria-label="현재 메모방 새 창으로 열기" title="새 창으로 열기" type="button">▣</button>
         <button class="ibtn" id="btn-rmenu" aria-label="채팅방 메뉴"></button>
       </header>
       <div class="sbar room-sbar gut" id="rsearch" hidden>
@@ -517,7 +531,7 @@ const I = {
 const $ = (s, r=document) => r.querySelector(s);
 document.querySelectorAll('[data-icon]').forEach(el => el.outerHTML = I[el.dataset.icon]);
 const setIcon = (id, name) => { $(id).innerHTML = I[name]; };
-setIcon('#btn-layout','folder'); setIcon('#btn-gsearch','search'); setIcon('#btn-more','more');
+setIcon('#btn-layout','folder'); setIcon('#btn-gsearch','search'); setIcon('#btn-trash-shortcut','trash'); setIcon('#btn-more','more');
 setIcon('#gsearch-close','close'); setIcon('#btn-back','back'); setIcon('#btn-rsearch','search');
 setIcon('#btn-msg-layout','folder'); setIcon('#btn-rmenu','more'); setIcon('#rs-up','up'); setIcon('#rs-down','down'); setIcon('#rs-close','close');
 setIcon('#btn-attach','plus'); setIcon('#btn-send','send');
@@ -1025,6 +1039,30 @@ const S = {
 };
 const app = $('#app'), listEl = $('#list'), msgsEl = $('#msgs'), input = $('#input');
 const curRoom = () => S.rooms.find(r => r.id === S.cur);
+/* Electron child windows carry a room identifier, not memo content, in the URL hash. */
+const bootRoomId = window.MemoTalkNative ? new URLSearchParams(location.hash.slice(1)).get('room') : null;
+let pendingBootRoomId = bootRoomId;
+if (bootRoomId) app.classList.add('list-collapsed');
+function syncListVisibility(){
+  const collapsed=app.classList.contains('list-collapsed');
+  const button=$('#btn-toggle-list');
+  button.setAttribute('aria-pressed',String(collapsed));
+  button.setAttribute('aria-label',collapsed?'목록창 보이기':'목록창 숨기기');
+  button.title=collapsed?'목록창 보이기':'목록창 숨기기';
+  button.textContent=collapsed?'☰':'◧';
+}
+$('#btn-toggle-list').addEventListener('click',()=>{
+  if(!S.cur)return;
+  app.classList.toggle('list-collapsed');
+  syncListVisibility();
+});
+syncListVisibility();
+$('#btn-popout').hidden=!window.MemoTalkNative;
+$('#btn-popout').addEventListener('click',async()=>{
+  if(!window.MemoTalkNative||!S.cur)return;
+  try{await window.MemoTalkNative.request('openRoomWindow',{roomId:S.cur,title:curRoom()?.name||'메모방'});}
+  catch(_){toast('새 메모방 창을 열지 못했어요.');}
+});
 
 /* ---------- folders (separate from room tags) ---------- */
 const folderById = id => S.folders.find(f => f.id === id);
@@ -1839,6 +1877,7 @@ function roomMenu(id){
     {icon:'save',label:'이 방 Markdown 묶음으로 저장',run:()=>exportTransfer([id])},
     {icon:'pdf', label:'PDF로 내보내기', run: () => exportPdf(id)},
     {icon:'html', label:'HTML로 내보내기', run: () => exportHtml([id])},
+    {icon:'trash', label:'휴지통 열기 · 복원', run: showVaultTrash},
     {icon:'trash', label:'채팅방 삭제', danger:true, run: () => deleteRoom(id)},
   ]);
 }
@@ -1948,6 +1987,7 @@ function openRoom(id, opts={}){
 }
 function closeRoom(){
   S.unsubMsgs?.(); S.unsubMsgs = null; S.cur = null; S.msgs = [];
+  app.classList.remove('list-collapsed'); syncListVisibility();
   $('#room').hidden = true; $('#pick-room').hidden = false; app.dataset.view = 'list'; renderList();
 }
 $('#btn-back').addEventListener('click', () => { if (S.cur) S.drafts[S.cur] = S.editing ? '' : input.value; app.dataset.view = 'list'; renderList(); });
@@ -2149,9 +2189,41 @@ function msgMenu(id){
   const items = [];
   items.push({icon:'edit', label:'댓글 달기', run: () => addMemoComment(m.id)});
   if (m.text) items.push({icon:'copy', label:'복사', run: () => copyText(m.text)});
+  if (m.text) items.push({icon:'copy',label:'문장 선택 · 각각 또는 여러 문장 복사',run:()=>selectMemoSentences(m)});
   if (m.text) items.push({icon:'edit', label:'수정', run: () => startEdit(m)});
   items.push({icon:'trash', label:'삭제', danger:true, run: () => deleteMsg(m)});
   menu('', items);
+}
+function memoSentenceUnits(text){
+  const source=String(text||'');
+  const chunks=typeof Intl.Segmenter==='function'
+    ? [...new Intl.Segmenter('ko',{granularity:'sentence'}).segment(source)].map(x=>x.segment)
+    : source.split(/(?<=[.!?。！？])\s+/u);
+  return chunks.flatMap(chunk=>chunk.split(/\r?\n/).map(part=>part.trim()).filter(Boolean));
+}
+function selectMemoSentences(m){
+  if(!m?.text)return;
+  const units=memoSentenceUnits(m.text);
+  if(!units.length)return toast('선택할 문장이 없어요.');
+  const rows=units.map((sentence,index)=>'<div class="memo-sentence-row"><label><input type="checkbox" data-sentence="'+index+'"><span>'+esc(sentence)+'</span></label><button type="button" data-copy-unit="'+index+'" aria-label="'+(index+1)+'번째 문장 복사">이 문장 복사</button></div>').join('');
+  const sheet=openScrim('<h2>문장 선택 · 복사</h2><p>각 문장 옆 복사 버튼을 누르거나 여러 문장을 선택하세요.</p>'+
+    '<div class="memo-sentence-toolbar"><button type="button" data-select-all>전체 선택</button><button type="button" data-select-none>해제</button><button type="button" class="primary" data-copy-selected>선택 문장 복사</button></div>'+
+    rows+'<div class="btns"><button type="button" class="ghost" data-close-sentence>닫기</button></div>');
+  const checks=[...sheet.querySelectorAll('input[data-sentence]')];
+  sheet.querySelector('[data-select-all]').onclick=()=>checks.forEach(x=>{x.checked=true;});
+  sheet.querySelector('[data-select-none]').onclick=()=>checks.forEach(x=>{x.checked=false;});
+  sheet.querySelector('[data-copy-selected]').onclick=()=>{
+    const selected=checks.filter(x=>x.checked).map(x=>units[Number(x.dataset.sentence)]);
+    if(!selected.length)return toast('복사할 문장을 선택해 주세요.');
+    closeSheet();
+    copyText(selected.join('\n'));
+  };
+  sheet.querySelectorAll('[data-copy-unit]').forEach(button=>button.onclick=()=>{
+    const selected=units[Number(button.dataset.copyUnit)];
+    closeSheet();
+    copyText(selected);
+  });
+  sheet.querySelector('[data-close-sentence]').onclick=closeSheet;
 }
 async function copyText(t){
   try { await navigator.clipboard.writeText(t); toast('복사했어요.'); }
@@ -3002,6 +3074,7 @@ async function showConflicts(memoId){
 /* ---------- list menu: backup ---------- */
 $('#btn-new').addEventListener('click', createRoom);
 $('#btn-new-folder').addEventListener('click', () => newFolder());
+$('#btn-trash-shortcut').addEventListener('click',showVaultTrash);
 $('#btn-more').addEventListener('click', () => {
   menu('메모톡', [
     {icon:'folder',label:'새 폴더 만들기',run:()=>newFolder()},
@@ -3451,6 +3524,12 @@ async function boot(){
     for(const id of chosenRooms)if(!list.some(item=>item.id===id))chosenRooms.delete(id);
     renderList();
     if (S.cur){ if (!curRoom()) closeRoom(); else renderRoomHeader(); }
+    if (pendingBootRoomId && S.roomsLoaded){
+      const boot=S.rooms.find(item=>item.id===pendingBootRoomId);
+      pendingBootRoomId=null;
+      if(boot)openRoom(boot.id);
+      else{app.classList.remove('list-collapsed');syncListVisibility();}
+    }
     if (first){ first = false; seedIfNew().finally(()=>scheduleVaultAutoBackup()).catch(() => {}); maintainVaultTrash().catch(()=>{}); if(fileMirror.pending) scheduleFileMirror(); }
   });
 }

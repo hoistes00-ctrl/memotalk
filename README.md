@@ -27,11 +27,13 @@ Android에서 `메모톡`이라는 이름으로 기존 앱을 업데이트하려
 - [APK 파일 및 SHA-256 체크섬 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/android-downloads)
 - [Android 시험판 빌드 이력](https://github.com/hoistes00-ctrl/memotalk/actions/workflows/android-test-apk.yml)
 
-## Windows용 EXE 설치 파일 바로 다운로드 (v17.0.1)
+## Windows용 EXE 설치 파일 바로 다운로드 (v17.0.2)
 
-**[Windows 64비트 메모톡 v17.0.1 설치 프로그램 받기](https://github.com/hoistes00-ctrl/memotalk/raw/53cbeabde14a4c547eed1d4ec6cfaba6927248fb/MemoTalk-Windows-Setup.exe)**
+**[Windows 64비트 메모톡 설치 프로그램 받기](https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe)**
 
-별도로 Node.js나 빌드 도구를 설치하지 않아도 되는 Windows 64비트용 Electron 설치 프로그램입니다. 파일 크기는 약 81.8MB입니다. [다운로드 파일의 SHA-256 체크섬](https://github.com/hoistes00-ctrl/memotalk/blob/windows-downloads/SHA256SUMS-Windows.txt)도 확인할 수 있습니다.
+별도로 Node.js나 빌드 도구를 설치하지 않아도 되는 Windows 64비트용 Electron 설치 프로그램입니다. [다운로드 파일의 SHA-256 체크섬](https://github.com/hoistes00-ctrl/memotalk/blob/windows-downloads/SHA256SUMS-Windows.txt)도 확인할 수 있습니다.
+
+**v17.0.2 변경사항:** Windows에서 여러 메모방을 독립 창으로 열고 각 창 크기를 변경할 수 있습니다. 메모방을 열었을 때 목록 패널을 숨겼다가 다시 보일 수 있습니다. 목록에 휴지통 바로가기를 추가하고, 메모를 길게 눌러 문장별·여러 문장 복사를 할 수 있습니다.
 
 **v17.0.1 변경사항:** Windows 목록의 메모방을 마우스로 드래그해 같은 폴더 안에서 위아래 순서를 바꿀 수 있습니다. 변경 순서는 해당 PC의 로컬 설정에 저장됩니다. 기존 폴더 이동과 메모 내용은 그대로 유지합니다.
 
