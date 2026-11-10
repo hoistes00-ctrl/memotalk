@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Check out MemoTalk source
         uses: actions/checkout@v4
+      - name: Check Android viewport/UI source assumptions
+        run: node tests/check-ui.mjs
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
