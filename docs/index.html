@@ -28,7 +28,7 @@
     <a class="button secondary" id="windows-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">Windows 설치 파일 · 배포 준비 중</a>
     <a class="button secondary" id="release-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">모든 버전 보기</a>
   </section>
-  <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Android v17.0.2 시험판 주의:</strong> 새 시험용 APK는 기존 메모톡과 충돌하지 않도록 <strong>‘메모톡 테스트’라는 별도 앱</strong>으로 설치됩니다. 기존 앱과 데이터가 자동 공유되지 않으므로, 내용을 옮기려면 기존 앱에서 JSON 백업 후 시험판에서 가져오세요. 기존 앱은 삭제하지 마세요. 시험판은 임시 디버그 서명으로 기존에 설치한 ‘메모톡 테스트’와도 서명 충돌이 발생할 수 있어 덮어 설치가 보장되지 않습니다. 앱을 삭제하기 전에 JSON 백업을 확보하세요.</p>
+  <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Android 정식 메모톡 업데이트 안내:</strong> 기존 앱과 동일한 <code>kr.memotalk.app</code> 패키지로 준비하고 있습니다. 기존 메모를 유지한 채 덮어 설치하려면 예전 앱과 <strong>동일한 서명키</strong>가 필요합니다. 정식 서명 APK가 검증되어 게시되기 전에는 다운로드 버튼을 활성화하지 않습니다. 기존 앱을 삭제하지 말고 JSON 백업을 별도로 보관하세요.</p>
   <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Windows v17.0.2 설치 주의:</strong> 목록에서 메모방을 마우스로 끌어 순서를 저장할 수 있습니다. 설치 파일은 코드 서명이 없는 시험판이므로 Windows SmartScreen 또는 브라우저에서 경고가 표시될 수 있습니다. 신뢰할 수 있는 출처인지 확인하고 설치하세요. 기존 메모톡 사용자는 먼저 JSON으로 백업해 주세요.</p>
   <small>설치 전 기존 메모를 JSON으로 백업하세요. 정식 APK가 기존 디버그 APK와 서명이 다르면 덮어 설치가 불가능합니다. 릴리스가 아직 없으면 다운로드 링크가 열리지 않을 수 있습니다.</small>
   <script>
@@ -46,7 +46,6 @@
       const status = $('release-status');
       const links = { android: $('android-link'), windows: $('windows-link') };
       const expected = { android: 'MemoTalk-Android.apk', windows: 'MemoTalk-Windows-Setup.exe' };
-      const androidTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/android-downloads/MemoTalk-Android-test.apk';
       const windowsTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe';
       const downloads = { android: null, windows: null };
       $('release-link').href = releases;
@@ -68,14 +67,32 @@
           ? 'Android APK · 공개 릴리스 확인'
           : 'Windows EXE · 공개 릴리스 확인';
       }
-      // Public test APK: not a stable release, so never present it as an in-place upgrade.
-      links.android.href = androidTestUrl;
-      links.android.textContent = 'Android v17.0.2 APK 다운로드 (별도 시험판)';
+      // Never present an ephemeral test-signed APK as an update for the original package.
+      const officialApk = 'https://github.com/' + repo + '/raw/refs/heads/android-official-downloads/MemoTalk-Android.apk';
+      links.android.href = 'https://github.com/' + repo + '/blob/main/SIGNING.md';
+      links.android.textContent = 'Android 정식 메모톡 · 서명 APK 준비 중';
       if (os === 'android') {
-        main.href = androidTestUrl;
-        main.textContent = 'Android v17.0.2 APK 다운로드';
-        description.textContent += ' · 기존 메모톡을 보존하는 별도 앱';
+        main.href = '#downloads';
+        main.textContent = '정식 APK 배포 준비 중';
+        description.textContent += ' · 기존 메모를 유지하려면 동일한 서명키가 필요해요';
       }
+      async function checkOfficialApk(){
+        try {
+          const response = await fetch('https://api.github.com/repos/' + repo + '/contents/MemoTalk-Android.apk?ref=android-official-downloads',
+            {headers:{Accept:'application/vnd.github+json'}});
+          if (!response.ok) return;
+          const record = await response.json();
+          if (record.type !== 'file' || record.name !== 'MemoTalk-Android.apk' || !Number.isFinite(record.size) || record.size < 1000) return;
+          links.android.href = officialApk;
+          links.android.textContent = '메모톡 Android 정식 APK 다운로드';
+          if (os === 'android') {
+            main.href = officialApk;
+            main.textContent = '메모톡 APK 다운로드';
+            description.textContent = 'Android용 메모톡 정식 서명 APK · 설치 전에 백업하세요';
+          }
+        } catch (_) { /* Missing or unavailable official build must not show a broken download link. */ }
+      }
+      checkOfficialApk();
       // Public unsigned Windows installer; direct link does not require Android Studio or build tools.
       links.windows.href = windowsTestUrl;
       links.windows.textContent = 'Windows v17.0.2 설치 파일 다운로드 (시험판)';
@@ -97,7 +114,7 @@
         try {
           const response = await fetch(latestApi, { headers: { Accept: 'application/vnd.github+json' } });
           if (response.status === 404) {
-            status.textContent = 'Android 시험판 APK 및 Windows EXE 다운로드 가능 · 정식 릴리스 준비 중';
+            status.textContent = 'Windows 설치 파일 제공 중 · Android 정식 서명 APK 준비 중';
             return;
           }
           if (!response.ok) throw Error('HTTP ' + response.status);
