@@ -9,6 +9,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'memotalk', privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } }
 ]);
 let windowRef;
+const memoWindows=new Set();
 const settingsPath = () => path.join(app.getPath('userData'), 'native-folder.json');
 let chosenFolder = null;
 async function loadFolder() {
@@ -62,10 +63,10 @@ function safeDownloadName(name) {
   return name.replace(/[\\/<>:"|?*\x00-\x1f]/g, '_').slice(0, 120) || 'memotalk.zip';
 }
 const MAX_NATIVE_BYTES = 64 * 1024 * 1024;
-async function perform(command, args = {}) {
+async function perform(command, args = {}, ownerWindow = windowRef) {
   if (command === 'hasFolder') return { connected:!!chosenFolder, name:chosenFolder?path.basename(chosenFolder):null };
   if (command === 'pickFolder') {
-    const result = await dialog.showOpenDialog(windowRef, {
+    const result = await dialog.showOpenDialog(ownerWindow, {
       title: '메모톡 저장 폴더 선택 (가능하면 빈 폴더)',
       properties: ['openDirectory', 'createDirectory']
     });
@@ -79,7 +80,7 @@ async function perform(command, args = {}) {
     const name = safeDownloadName(args.name);
     const binary = Buffer.from(args.base64 || '', 'base64');
     if (binary.length > MAX_NATIVE_BYTES) throw new Error('한 번에 저장 가능한 파일은 64MB까지입니다');
-    const result = await dialog.showSaveDialog(windowRef, {title:'메모톡 파일 저장',defaultPath:path.join(app.getPath('downloads'),name)});
+    const result = await dialog.showSaveDialog(ownerWindow, {title:'메모톡 파일 저장',defaultPath:path.join(app.getPath('downloads'),name)});
     if(result.canceled || !result.filePath) throw new Error('cancelled');
     await fs.writeFile(result.filePath, binary);
     return true;
@@ -128,32 +129,59 @@ async function perform(command, args = {}) {
 
 app.whenReady().then(async () => {
   await loadFolder();
-  const assetDirectory = app.isPackaged
+  const assetDirectory=app.isPackaged
     ? path.join(process.resourcesPath,'web')
     : path.resolve(__dirname,'..','shared');
-  protocol.handle('memotalk', async request => {
-    const uri = new URL(request.url);
-    const rel = decodeURIComponent(uri.pathname.replace(/^\/+/,'')) || 'index.html';
-    const candidate = path.resolve(assetDirectory, rel);
-    if (candidate !== assetDirectory && !candidate.startsWith(assetDirectory + path.sep)) return new Response('Forbidden',{status:403});
-    try { await fs.access(candidate); } catch (_) {return new Response('Not found',{status:404});}
+  protocol.handle('memotalk',async request=>{
+    const uri=new URL(request.url);
+    const rel=decodeURIComponent(uri.pathname.replace(/^\/+/,''))||'index.html';
+    const candidate=path.resolve(assetDirectory,rel);
+    if(candidate!==assetDirectory&&!candidate.startsWith(assetDirectory+path.sep))
+      return new Response('Forbidden',{status:403});
+    try{await fs.access(candidate);}catch(_){return new Response('Not found',{status:404});}
     return net.fetch(pathToFileURL(candidate).toString());
   });
-  ipcMain.handle('memotalk:request', async (event, {command,args}) => {
-    if(event.sender !== windowRef?.webContents) throw new Error('허용되지 않은 요청');
-    return perform(command,args);
+  function createMemoWindow(roomId=null,roomTitle='메모방'){
+    const child=Boolean(roomId);
+    const win=new BrowserWindow({
+      width:child?780:1120,height:child?700:800,
+      minWidth:390,minHeight:480,resizable:true,maximizable:true,
+      title:child?'메모톡 · '+roomTitle:'메모톡',
+      backgroundColor:'#F5F6F8',
+      webPreferences:{
+        preload:path.join(__dirname,'preload.js'),
+        contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true
+      }
+    });
+    memoWindows.add(win);
+    win.on('closed',()=>{memoWindows.delete(win);if(windowRef===win)windowRef=null;});
+    win.webContents.setWindowOpenHandler(({url})=>{
+      if(url.startsWith('https://')||url.startsWith('http://'))shell.openExternal(url);
+      return {action:'deny'};
+    });
+    win.webContents.on('will-navigate',(event,target)=>{
+      if(!target.startsWith('memotalk://app/'))event.preventDefault();
+    });
+    const url='memotalk://app/index.html'+(roomId?'#room='+encodeURIComponent(roomId):'');
+    win.loadURL(url).catch(error=>console.error('MemoTalk window load error:',error));
+    return win;
+  }
+  ipcMain.handle('memotalk:request',async(event,request)=>{
+    const owner=BrowserWindow.fromWebContents(event.sender);
+    if(!owner||!memoWindows.has(owner)||!event.sender.getURL().startsWith('memotalk://app/index.html'))
+      throw new Error('허용되지 않은 요청');
+    if(!request||typeof request.command!=='string')throw new Error('잘못된 요청');
+    const args=request.args&&typeof request.args==='object'?request.args:{};
+    if(request.command==='openRoomWindow'){
+      const id=args.roomId;
+      if(typeof id!=='string'||!id||id.length>256||/[\u0000-\u001f]/.test(id))
+        throw new Error('잘못된 메모방 ID');
+      const title=typeof args.title==='string'?args.title.slice(0,80):'메모방';
+      createMemoWindow(id,title);
+      return {opened:true};
+    }
+    return perform(request.command,args,owner);
   });
-  windowRef = new BrowserWindow({
-    width:1120,height:800,minWidth:390,minHeight:480,backgroundColor:'#F5F6F8',
-    webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}
-  });
-  windowRef.webContents.setWindowOpenHandler(({url}) => {
-    if(url.startsWith('https://') || url.startsWith('http://')) shell.openExternal(url);
-    return {action:'deny'};
-  });
-  windowRef.webContents.on('will-navigate',(event,target) => {
-    if(!target.startsWith('memotalk://app/')) event.preventDefault();
-  });
-  await windowRef.loadURL('memotalk://app/index.html');
+  windowRef=createMemoWindow();
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});

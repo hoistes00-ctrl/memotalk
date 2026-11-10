@@ -1,0 +1,24 @@
+name: Review UI source (no app build or deployment)
+
+on:
+  pull_request:
+    paths:
+      - 'shared/**'
+      - 'android/app/src/main/assets/**'
+      - 'windows/**'
+      - 'tests/**'
+      - '.github/workflows/check-ui.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check source syntax and UI features
+        run: node tests/check-ui.mjs
