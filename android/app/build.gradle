@@ -1,0 +1,40 @@
+plugins { id 'com.android.application' }
+
+// Never commit the signing keystore or passwords. Supply them via environment variables.
+def releaseKeystore = System.getenv('MEMOTALK_KEYSTORE_FILE')
+def releasePassword = System.getenv('MEMOTALK_KEYSTORE_PASSWORD')
+def releaseAlias = System.getenv('MEMOTALK_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('MEMOTALK_KEY_PASSWORD')
+def canSignRelease = releaseKeystore && releasePassword && releaseAlias && releaseKeyPassword
+
+android {
+    namespace 'kr.memotalk.app'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'kr.memotalk.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 17
+        versionName '17.0.0'
+    }
+    signingConfigs {
+        release {
+            if (canSignRelease) {
+                storeFile file(releaseKeystore)
+                storePassword releasePassword
+                keyAlias releaseAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (canSignRelease) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

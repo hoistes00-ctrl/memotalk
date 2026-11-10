@@ -1,0 +1,104 @@
+name: Publish signed MemoTalk release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  android-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Restore user-owned Android release signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_BASE64 }}
+          MEMOTALK_KEYSTORE_PASSWORD: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_PASSWORD }}
+          MEMOTALK_KEY_ALIAS: ${{ secrets.MEMOTALK_ANDROID_KEY_ALIAS }}
+          MEMOTALK_KEY_PASSWORD: ${{ secrets.MEMOTALK_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_B64" || -z "$MEMOTALK_KEYSTORE_PASSWORD" || -z "$MEMOTALK_KEY_ALIAS" || -z "$MEMOTALK_KEY_PASSWORD" ]]; then
+            echo 'Missing Android signing secrets. Release aborted.' >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/memotalk-release.jks"
+      - name: Build signed release APK
+        shell: bash
+        env:
+          MEMOTALK_KEYSTORE_FILE: ${{ runner.temp }}/memotalk-release.jks
+          MEMOTALK_KEYSTORE_PASSWORD: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_PASSWORD }}
+          MEMOTALK_KEY_ALIAS: ${{ secrets.MEMOTALK_ANDROID_KEY_ALIAS }}
+          MEMOTALK_KEY_PASSWORD: ${{ secrets.MEMOTALK_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd android
+          gradle --no-daemon assembleRelease
+          test -f app/build/outputs/apk/release/app-release.apk
+          mkdir -p ../release-files
+          cp app/build/outputs/apk/release/app-release.apk ../release-files/MemoTalk-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: release-files/MemoTalk-Android.apk
+
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Windows NSIS installer
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          cd windows
+          npm install --no-audit --no-fund
+          npm run dist:win
+          $installer = Get-ChildItem -Path dist -Filter 'MemoTalk-Setup-*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows installer was not produced' }
+          New-Item -ItemType Directory -Force ../release-files | Out-Null
+          Copy-Item $installer.FullName ../release-files/MemoTalk-Windows-Setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: release-files/MemoTalk-Windows-Setup.exe
+
+  publish:
+    needs: [android-release, windows-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-release'
+          path: release-files
+          merge-multiple: true
+      - name: Verify installers exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release-files/MemoTalk-Android.apk
+          test -s release-files/MemoTalk-Windows-Setup.exe
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-files/MemoTalk-Android.apk
+            release-files/MemoTalk-Windows-Setup.exe
+          generate_release_notes: true
+          draft: true

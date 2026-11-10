@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MemoTalk · 다운로드</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color-scheme:light dark}
+    body{max-width:620px;margin:0 auto;padding:36px 20px;line-height:1.6}
+    h1{margin:0 0 6px}p{color:color-mix(in srgb,currentColor 75%,transparent)}
+    .card{border:1px solid #9997;border-radius:16px;padding:20px;margin:18px 0}
+    a.button{display:block;background:#f3d45d;color:#171717;text-decoration:none;border-radius:10px;padding:12px 16px;font-weight:650;text-align:center;margin-top:10px}
+    a.button.secondary{background:#8882;color:inherit;border:1px solid #9997}
+    #main{border:2px solid #e6cb54}small{opacity:.8}
+  </style>
+</head>
+<body>
+  <h1>MemoTalk · 메모톡</h1>
+  <p>Android와 Windows에서 사용하는 오프라인 메모 앱. 기존 메모방, 댓글, 폴더, JSON 백업을 지원합니다.</p>
+  <section class="card" id="main">
+    <h2 id="device-title">다운로드</h2>
+    <p id="device-description">운영체제를 확인하고 있습니다.</p>
+    <a class="button" id="device-link" href="#downloads">다운로드 파일 선택</a>
+  </section>
+  <section class="card" id="downloads">
+    <h2>다른 기기용 받기</h2>
+    <a class="button secondary" id="android-link" href="#">Android APK</a>
+    <a class="button secondary" id="windows-link" href="#">Windows 64비트 설치 파일(EXE)</a>
+    <a class="button secondary" id="release-link" href="#">모든 버전 보기</a>
+  </section>
+  <small>설치 전 기존 메모를 JSON으로 백업하세요. 정식 APK가 기존 디버그 APK와 서명이 다르면 덮어 설치가 불가능합니다. 릴리스가 아직 없으면 다운로드 링크가 열리지 않을 수 있습니다.</small>
+  <script>
+    (() => {
+      const owner=location.hostname.endsWith('.github.io')?location.hostname.slice(0,-'.github.io'.length):'';
+      const repo=location.pathname.split('/').filter(Boolean)[0]||'MemoTalk';
+      if(!owner){document.querySelector('#device-description').textContent='GitHub Pages에 게시하면 다운로드 링크가 활성화됩니다.';return;}
+      const base=`https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases`;
+      const a=base+'/latest/download/MemoTalk-Android.apk';
+      const w=base+'/latest/download/MemoTalk-Windows-Setup.exe';
+      document.querySelector('#android-link').href=a;
+      document.querySelector('#windows-link').href=w;
+      document.querySelector('#release-link').href=base;
+      const android=/Android/i.test(navigator.userAgent);
+      const windows=/Windows NT/i.test(navigator.userAgent);
+      const title=document.querySelector('#device-title');
+      const description=document.querySelector('#device-description');
+      const link=document.querySelector('#device-link');
+      if(android){title.textContent='Android용 메모톡';description.textContent='휴대폰에 설치할 APK 파일';link.textContent='Android APK 다운로드';link.href=a;}
+      else if(windows){title.textContent='Windows용 메모톡';description.textContent='Windows 64비트 설치 프로그램';link.textContent='Windows EXE 다운로드';link.href=w;}
+      else{title.textContent='기기에 맞는 버전을 선택하세요';description.textContent='현재 기기를 자동으로 구분하지 못했습니다.';link.textContent='파일 목록 보기';link.href='#downloads';}
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{
+  "name": "memotalk-desktop",
+  "version": "17.0.0",
+  "private": true,
+  "description": "메모톡 - Windows 설치형 메모 앱",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "kr.memotalk.desktop",
+    "productName": "MemoTalk",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../shared",
+        "to": "web"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "메모톡",
+      "artifactName": "MemoTalk-Setup-${version}-${arch}.${ext}"
+    },
+    "artifactName": "MemoTalk-${version}-${os}-${arch}.${ext}",
+    "portable": {
+      "artifactName": "MemoTalk-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}
