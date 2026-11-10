@@ -1,0 +1,74 @@
+name: Publish downloadable Windows installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - 'shared/**'
+      - '.github/workflows/windows-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: memotalk-windows-installer
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout public MemoTalk source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build unsigned Windows x64 installer
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          Set-Location windows
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
+          npm run dist:win
+          if ($LASTEXITCODE -ne 0) { throw 'electron-builder failed' }
+          $installer = Get-ChildItem -Path dist -Filter 'MemoTalk-Setup-*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'MemoTalk Setup EXE not produced' }
+          if ($installer.Length -ge 95000000) { throw 'EXE exceeds safe GitHub Git blob limit; use Releases instead' }
+          New-Item -ItemType Directory -Force '../windows-download' | Out-Null
+          Copy-Item $installer.FullName '../windows-download/MemoTalk-Windows-Setup.exe'
+          $hash = (Get-FileHash '../windows-download/MemoTalk-Windows-Setup.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  MemoTalk-Windows-Setup.exe" | Set-Content -Encoding ascii '../windows-download/SHA256SUMS-Windows.txt'
+      - name: Upload installer artifact for testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-Windows-installer-v17
+          path: |
+            windows-download/MemoTalk-Windows-Setup.exe
+            windows-download/SHA256SUMS-Windows.txt
+          if-no-files-found: error
+      - name: Publish direct download on windows-downloads branch
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan windows-downloads
+          if ($LASTEXITCODE -ne 0) { throw 'Could not make download branch' }
+          git rm -rf . | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE/windows-download/MemoTalk-Windows-Setup.exe" './MemoTalk-Windows-Setup.exe'
+          Copy-Item "$env:GITHUB_WORKSPACE/windows-download/SHA256SUMS-Windows.txt" './SHA256SUMS-Windows.txt'
+          @(
+            'MemoTalk v17 Windows 64-bit experimental installer',
+            'The EXE is not code-signed. Windows may show a SmartScreen warning.',
+            'Before upgrading an existing MemoTalk installation, export a JSON backup.',
+            'Do not upload private note files or passwords to this repository.'
+          ) | Set-Content -Encoding utf8 README.txt
+          git add MemoTalk-Windows-Setup.exe SHA256SUMS-Windows.txt README.txt
+          git commit -m "Publish MemoTalk v17 experimental Windows installer"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not commit installer' }
+          git push origin HEAD:refs/heads/windows-downloads --force
+          if ($LASTEXITCODE -ne 0) { throw 'Could not push public download branch' }
