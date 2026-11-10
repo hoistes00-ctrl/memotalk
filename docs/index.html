@@ -29,6 +29,7 @@
     <a class="button secondary" id="release-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">모든 버전 보기</a>
   </section>
   <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Android 시험판 주의:</strong> 이 APK는 GitHub Actions가 생성한 임시 디버그 서명 파일입니다. 기존에 설치된 메모톡과 서명이 달라 덮어 설치가 안 될 수 있고, 이후 시험판도 같은 서명으로 업데이트된다는 보장이 없습니다. 기존 앱을 삭제하지 말고 메모를 JSON으로 백업하세요.</p>
+  <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Windows 설치 주의:</strong> 이 설치 파일은 서명되지 않은 시험판이므로 Windows SmartScreen 또는 브라우저에서 경고가 표시될 수 있습니다. 신뢰할 수 있는 출처인지 확인하고 설치하세요. 기존 메모톡 사용자는 먼저 JSON으로 백업해 주세요.</p>
   <small>설치 전 기존 메모를 JSON으로 백업하세요. 정식 APK가 기존 디버그 APK와 서명이 다르면 덮어 설치가 불가능합니다. 릴리스가 아직 없으면 다운로드 링크가 열리지 않을 수 있습니다.</small>
   <script>
     (() => {
@@ -46,6 +47,7 @@
       const links = { android: $('android-link'), windows: $('windows-link') };
       const expected = { android: 'MemoTalk-Android.apk', windows: 'MemoTalk-Windows-Setup.exe' };
       const androidTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/android-downloads/MemoTalk-Android-test.apk';
+      const windowsTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe';
       const downloads = { android: null, windows: null };
       $('release-link').href = releases;
       if (os === 'android') {
@@ -74,6 +76,14 @@
         main.textContent = 'Android 시험용 APK 다운로드';
         description.textContent += ' · 시험판 / 기존 앱 업데이트 미보장';
       }
+      // Public unsigned Windows installer; direct link does not require Android Studio or build tools.
+      links.windows.href = windowsTestUrl;
+      links.windows.textContent = 'Windows v17 설치 파일 다운로드 (서명되지 않은 시험판)';
+      if (os === 'windows') {
+        main.href = windowsTestUrl;
+        main.textContent = 'Windows 설치 파일(EXE) 다운로드';
+        description.textContent += ' · 시험판 / 코드 서명 없음';
+      }
       function safeAssetUrl(asset, name) {
         if (!asset || asset.name !== name || typeof asset.browser_download_url !== 'string') return null;
         try {
@@ -87,7 +97,7 @@
         try {
           const response = await fetch(latestApi, { headers: { Accept: 'application/vnd.github+json' } });
           if (response.status === 404) {
-            status.textContent = 'Android 시험용 APK 다운로드 가능 · 정식 릴리스 준비 중';
+            status.textContent = 'Android 시험판 APK 및 Windows EXE 다운로드 가능 · 정식 릴리스 준비 중';
             return;
           }
           if (!response.ok) throw Error('HTTP ' + response.status);
@@ -113,7 +123,7 @@
             description.textContent += ' · 아직 설치 파일 준비 중';
           }
         } catch (_) {
-          status.textContent = '릴리스 정보를 확인할 수 없습니다. GitHub Releases에서 직접 확인해 주세요.';
+          status.textContent = '정식 릴리스 정보를 확인할 수 없습니다. 위 시험판 다운로드 링크는 사용할 수 있습니다.';
         }
       }
       checkRelease();
