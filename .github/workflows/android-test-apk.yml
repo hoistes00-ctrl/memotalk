@@ -43,6 +43,16 @@ jobs:
         run: |
           cd android
           gradle --no-daemon --stacktrace assembleDebug
+      - name: Verify independent package ID and APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$SDK/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/memotalk-badging.txt
+          grep -F "name='kr.memotalk.app.test'" /tmp/memotalk-badging.txt
+          "$SDK/build-tools/35.0.0/apksigner" verify --verbose "$APK"
       - name: Check output and copy to release folder
         shell: bash
         run: |
