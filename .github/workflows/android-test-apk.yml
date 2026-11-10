@@ -1,0 +1,77 @@
+name: Publish installable Android test APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'shared/**'
+      - '.github/workflows/android-test-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: memotalk-android-test-apk
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out MemoTalk source
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK components
+        uses: android-actions/setup-android@v3
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build installable Android test APK
+        run: |
+          cd android
+          gradle --no-daemon --stacktrace assembleDebug
+      - name: Check output and copy to release folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p release-files
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-files/MemoTalk-Android-test.apk
+          cd release-files
+          sha256sum MemoTalk-Android-test.apk > SHA256SUMS-Android-test.txt
+      - name: Retain APK as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-Android-test-apk
+          path: |
+            release-files/MemoTalk-Android-test.apk
+            release-files/SHA256SUMS-Android-test.txt
+      - name: Publish public test prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG='android-test-v17.0.0'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-files/MemoTalk-Android-test.apk \
+              release-files/SHA256SUMS-Android-test.txt \
+              --clobber
+          else
+            gh release create "$TAG" \
+              release-files/MemoTalk-Android-test.apk \
+              release-files/SHA256SUMS-Android-test.txt \
+              --target "$GITHUB_SHA" \
+              --title 'MemoTalk v17 Android - test APK (debug signed)' \
+              --prerelease \
+              --notes 'Experimental test build for clean Android installation without Android Studio. Signed with a temporary GitHub Actions debug key; it may not update any existing MemoTalk installation, and future test builds may not update this one either. Do not uninstall an existing MemoTalk app without first exporting a verified JSON backup. This prerelease is NOT the stable signed release.'
+          fi
