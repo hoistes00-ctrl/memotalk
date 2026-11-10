@@ -7,6 +7,15 @@
 - **오프라인 저장**: 기기 내부에 저장되며, 기기 간 자동 동기화는 아직 지원하지 않습니다.
 - **백업**: JSON 백업 및 Markdown ZIP 내보내기 지원. 앱 내 자동 백업은 앱 삭제나 기기 초기화 시 함께 삭제될 수 있습니다.
 
+## Android 정식 앱과 덮어 설치
+
+Android에서 `메모톡`이라는 이름으로 기존 앱을 업데이트하려면 **패키지명과 서명키가 모두 같아야** 합니다. 정식 앱 `kr.memotalk.app`의 빌드 워크플로는 준비했지만, **사용자의 고정 서명키가 GitHub Actions 비밀값으로 등록되기 전에는 APK를 공개하지 않습니다.**
+
+- [안전한 서명키 준비 및 업데이트 안내](SIGNING.md)
+- [정식 서명 APK 배포 워크플로](.github/workflows/android-stable-apk.yml)
+
+기존 `메모톡 테스트` (`kr.memotalk.app.test`)는 정식 앱과 별개이므로 데이터가 자동 이전되지 않습니다. **기존 앱을 삭제하지 말고 JSON 백업과 복원 계획을 확인하세요.**
+
 ## Android 시험용 APK 바로 설치 (Android Studio 불필요)
 
 **[갤럭시용 MemoTalk v17 시험 APK 다운로드](https://github.com/hoistes00-ctrl/memotalk/raw/87ab690c590918e82bb33b7b693d19290c7766a1/MemoTalk-Android-test.apk)**
