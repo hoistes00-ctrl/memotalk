@@ -7,11 +7,20 @@
 - **오프라인 저장**: 기기 내부에 저장되며, 기기 간 자동 동기화는 아직 지원하지 않습니다.
 - **백업**: JSON 백업 및 Markdown ZIP 내보내기 지원. 앱 내 자동 백업은 앱 삭제나 기기 초기화 시 함께 삭제될 수 있습니다.
 
-## 다운로드
+## Android 시험용 APK 바로 설치 (Android Studio 불필요)
 
-배포가 준비되면 [Releases](../../releases)에서 Android APK 및 Windows EXE를 받을 수 있습니다. 다운로드 페이지는 `docs/index.html`을 GitHub Pages로 활성화해서 사용할 수 있습니다.
+**[갤럭시용 MemoTalk v17 시험 APK 다운로드](https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/android-downloads/MemoTalk-Android-test.apk)**
 
-**현재 공개 준비용 소스 패키지에는 앱 설치 파일이 포함되어 있지 않습니다.** GitHub Actions의 빌드 검증과 릴리스 서명을 완료해야 합니다.
+이 공개 시험판은 GitHub Actions에서 직접 빌드된 APK입니다. Android 휴대폰에서 파일을 다운로드한 후, 다운로드된 APK를 열어 설치를 승인하면 됩니다. 휴대폰에서 '출처를 알 수 없는 앱 설치' 권한 확인이 필요할 수 있습니다.
+
+**중요:** 이 APK는 임시 디버그 서명된 시험판입니다. 기존에 설치된 메모톡과 서명이 다르면 기존 앱 위에 업데이트가 불가능합니다. 다음 시험판에서도 같은 서명이 유지된다는 보장이 없습니다. **기존 앱을 삭제하지 말고, 먼저 기존 메모를 JSON으로 백업하세요.** 이 APK는 정식 장기 업데이트용 버전이 아닙니다.
+
+- [APK 파일 및 SHA-256 체크섬 보관 브랜치](https://github.com/hoistes00-ctrl/memotalk/tree/android-downloads)
+- [Android 시험판 빌드 이력](https://github.com/hoistes00-ctrl/memotalk/actions/workflows/android-test-apk.yml)
+
+## 정식 다운로드 안내
+
+장기 업데이트를 위한 정식 서명 APK와 Windows EXE는 [Releases](../../releases)에 별도 게시할 예정입니다. 다운로드 페이지는 `docs/index.html`을 GitHub Pages로 활성화하면 사용할 수 있습니다. 정식 서명키 설정과 빌드·설치 검증이 끝나기 전에는 시험판을 정식 APK로 표시하지 않습니다.
 
 ## 직접 빌드
 
