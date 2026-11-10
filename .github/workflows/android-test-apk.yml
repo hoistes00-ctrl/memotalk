@@ -1,4 +1,4 @@
-name: Publish installable Android test APK
+name: Build Android test APK (validation only)
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: memotalk-android-test-apk
@@ -69,19 +69,3 @@ jobs:
           path: |
             release-files/MemoTalk-Android-test.apk
             release-files/SHA256SUMS-Android-test.txt
-      - name: Publish direct APK link on separate public branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp release-files/MemoTalk-Android-test.apk "$RUNNER_TEMP/MemoTalk-Android-test.apk"
-          cp release-files/SHA256SUMS-Android-test.txt "$RUNNER_TEMP/SHA256SUMS-Android-test.txt"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch --orphan android-downloads
-          git rm -rf . >/dev/null 2>&1 || true
-          cp "$RUNNER_TEMP/MemoTalk-Android-test.apk" ./MemoTalk-Android-test.apk
-          cp "$RUNNER_TEMP/SHA256SUMS-Android-test.txt" ./SHA256SUMS-Android-test.txt
-          printf '%s\n' 'MemoTalk v17 Android testing APK. Not a production signed release.' 'Back up your current notes before installing. Different signing keys prevent in-place updates.' > README.txt
-          git add MemoTalk-Android-test.apk SHA256SUMS-Android-test.txt README.txt
-          git commit -m "Publish installable experimental Android v17 APK"
-          git push origin HEAD:refs/heads/android-downloads --force

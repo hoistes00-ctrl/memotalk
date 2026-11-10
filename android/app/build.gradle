@@ -14,8 +14,8 @@ android {
         applicationId 'kr.memotalk.app'
         minSdk 26
         targetSdk 35
-        versionCode 17
-        versionName '17.0.0'
+        versionCode 18
+        versionName '17.0.2'
     }
     signingConfigs {
         release {

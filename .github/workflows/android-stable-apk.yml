@@ -1,0 +1,95 @@
+name: Publish signed official MemoTalk Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: memotalk-signed-android
+  cancel-in-progress: false
+
+jobs:
+  build-official:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout public source
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Restore private, reusable signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PW: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MEMOTALK_ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.MEMOTALK_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_B64" || -z "$KEYSTORE_PW" || -z "$KEY_ALIAS" || -z "$KEY_PW" ]]; then
+            echo "::error::Missing Android signing secrets. Set the four MEMOTALK_ANDROID_* repository secrets. No APK will be published."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/memotalk-release.jks"
+          chmod 600 "$RUNNER_TEMP/memotalk-release.jks"
+      - name: Build signed APK with stable app ID
+        env:
+          MEMOTALK_KEYSTORE_FILE: ${{ runner.temp }}/memotalk-release.jks
+          MEMOTALK_KEYSTORE_PASSWORD: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_PASSWORD }}
+          MEMOTALK_KEY_ALIAS: ${{ secrets.MEMOTALK_ANDROID_KEY_ALIAS }}
+          MEMOTALK_KEY_PASSWORD: ${{ secrets.MEMOTALK_ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd android
+          gradle --no-daemon assembleRelease
+      - name: Verify official package, signature and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/memotalk-package.txt
+          grep -F "name='kr.memotalk.app'" /tmp/memotalk-package.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          mkdir -p signed-build
+          cp "$APK" signed-build/MemoTalk-Android.apk
+          cd signed-build
+          sha256sum MemoTalk-Android.apk > SHA256SUMS.txt
+      - name: Archive signed build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-Android-official-signed
+          path: |
+            signed-build/MemoTalk-Android.apk
+            signed-build/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Publish direct download branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp signed-build/MemoTalk-Android.apk "$RUNNER_TEMP/MemoTalk-Android.apk"
+          cp signed-build/SHA256SUMS.txt "$RUNNER_TEMP/SHA256SUMS.txt"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan android-official-downloads
+          git rm -rf . >/dev/null 2>&1 || true
+          cp "$RUNNER_TEMP/MemoTalk-Android.apk" ./MemoTalk-Android.apk
+          cp "$RUNNER_TEMP/SHA256SUMS.txt" ./SHA256SUMS.txt
+          printf '%s\n' 'MemoTalk Android official app ID: kr.memotalk.app' 'Signed using a persistent owner-provided keystore stored only in GitHub Actions Secrets.' 'In-place update requires that the previously installed app used the same signing key.' > README.txt
+          git add MemoTalk-Android.apk SHA256SUMS.txt README.txt
+          git commit -m "Publish signed MemoTalk Android installer"
+          git push origin HEAD:refs/heads/android-official-downloads --force
