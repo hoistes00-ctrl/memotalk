@@ -471,6 +471,14 @@ body{position:relative;margin:0}
 <script>
 (() => {
 'use strict';
+// 1400 ms = existing app default (not a library default). Higher = longer autosave delay.
+const FILE_MIRROR_DELAY=1400;
+// setTimeout accepts 0..2147483647 ms. Higher = longer delay; zero schedules next task.
+const FILE_MIRROR_DELAY_MAX=2147483647;
+// 0 ms = browser minimum delay; smaller values save sooner.
+const FILE_MIRROR_DELAY_MIN=0;
+// 1 ms = number-input default step; larger values make each adjustment coarser.
+const FILE_MIRROR_DELAY_STEP=1;
 // Custom default 420 ms (no library default); lower starts touch holding sooner.
 const HOLD_DELAY = 420;
 // Custom default 7 px; lower starts mouse dragging with less movement.
@@ -2469,14 +2477,6 @@ async function send(){
 // No cross-device sync or external Markdown import is performed in this stage.
 const FILE_MIRROR_INDEX='.memotalk-file-index.json';
 const FILE_MIRROR_DB='memotalk-file-folder-v1';
-// 1400 ms = existing app default (not a library default). Higher = longer autosave delay.
-const FILE_MIRROR_DELAY=1400;
-// setTimeout accepts 0..2147483647 ms. Higher = longer delay; zero schedules next task.
-const FILE_MIRROR_DELAY_MAX=2147483647;
-// 0 ms = browser minimum delay; smaller values save sooner.
-const FILE_MIRROR_DELAY_MIN=0;
-// 1 ms = number-input default step; larger values make each adjustment coarser.
-const FILE_MIRROR_DELAY_STEP=1;
 let fileMirrorDelay=FILE_MIRROR_DELAY;
 try{const saved=localStorage.getItem('memotalk.fileMirror.delay');if(saved!==null&&Number.isFinite(Number(saved)))fileMirrorDelay=Math.max(FILE_MIRROR_DELAY_MIN,Math.min(FILE_MIRROR_DELAY_MAX,Number(saved)));}catch(_){}
 const fileMirror={handle:null,linkId:null,timer:null,pending:false,busy:false,dirty:false,status:'off',message:'파일 폴더 연결 안 됨',auto:true};
