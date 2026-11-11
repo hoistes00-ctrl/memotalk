@@ -123,7 +123,7 @@ public class MainActivity extends Activity {
                 String pathname = url.getPath();
                 if(pathname == null) return new WebResourceResponse("text/plain", "utf-8", 404, "Not found", null, null);
                 String name = pathname.startsWith("/") ? pathname.substring(1) : pathname;
-                if(!name.equals("index.html") && !name.equals("platform-bridge.js"))
+                if(!name.equals("index.html") && !name.equals("platform-bridge.js") && !name.equals("mirror-engine.js"))
                     return new WebResourceResponse("text/plain", "utf-8", 404, "Not found", null, null);
                 try {
                     InputStream file = getAssets().open(name);

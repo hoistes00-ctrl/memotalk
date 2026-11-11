@@ -12,6 +12,13 @@ const end=shared.lastIndexOf('</script>');
 assert.ok(start>=0 && end>start,'Inline UI script is present');
 new vm.Script(shared.slice(start+8,end),{filename:'shared/index.html (inline)'});
 new vm.Script(desktop,{filename:'windows/main.js'});
+for(const name of ['platform-bridge.js','mirror-engine.js']){
+  const source=fs.readFileSync('shared/'+name,'utf8');
+  assert.equal(source,fs.readFileSync('android/app/src/main/assets/'+name,'utf8'),name+' must match Android assets');
+  new vm.Script(source,{filename:name});
+}
+const windowsPackage=JSON.parse(fs.readFileSync('windows/package.json','utf8'));
+assert.ok(windowsPackage.build.files.includes('verified-write.js'),'Verified writer must be packaged in Windows app');
 
 for(const expected of ['id="btn-toggle-list"','id="btn-popout"','id="btn-trash-shortcut"','data-copy-unit','data-copy-selected','window.MemoTalkNative.request(\'openRoomWindow\''])
   assert.ok(shared.includes(expected),expected+' must be present');

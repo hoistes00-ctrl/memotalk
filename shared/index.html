@@ -467,6 +467,7 @@ body{position:relative;margin:0}
 <input type="file" id="file-transfer" accept=".zip,application/zip" hidden>
 
 <script src="platform-bridge.js"></script>
+<script src="mirror-engine.js"></script>
 <script>
 (() => {
 'use strict';
@@ -2468,7 +2469,16 @@ async function send(){
 // No cross-device sync or external Markdown import is performed in this stage.
 const FILE_MIRROR_INDEX='.memotalk-file-index.json';
 const FILE_MIRROR_DB='memotalk-file-folder-v1';
+// 1400 ms = existing app default (not a library default). Higher = longer autosave delay.
 const FILE_MIRROR_DELAY=1400;
+// setTimeout accepts 0..2147483647 ms. Higher = longer delay; zero schedules next task.
+const FILE_MIRROR_DELAY_MAX=2147483647;
+// 0 ms = browser minimum delay; smaller values save sooner.
+const FILE_MIRROR_DELAY_MIN=0;
+// 1 ms = number-input default step; larger values make each adjustment coarser.
+const FILE_MIRROR_DELAY_STEP=1;
+let fileMirrorDelay=FILE_MIRROR_DELAY;
+try{const saved=localStorage.getItem('memotalk.fileMirror.delay');if(saved!==null&&Number.isFinite(Number(saved)))fileMirrorDelay=Math.max(FILE_MIRROR_DELAY_MIN,Math.min(FILE_MIRROR_DELAY_MAX,Number(saved)));}catch(_){}
 const fileMirror={handle:null,linkId:null,timer:null,pending:false,busy:false,dirty:false,status:'off',message:'파일 폴더 연결 안 됨',auto:true};
 try { fileMirror.auto=localStorage.getItem('memotalk.fileMirror.auto')!=='false'; fileMirror.pending=localStorage.getItem('memotalk.fileMirror.pending')==='1'; }catch(_){}
 function fileMirrorStatus(status,message){
@@ -2476,7 +2486,7 @@ function fileMirrorStatus(status,message){
   const bar=$('#file-sync-bar'), label=$('#file-sync-state');
   if(!bar||!label)return;
   bar.dataset.sync=status;
-  label.textContent=message;
+  label.textContent=message;label.title=message;
   $('#btn-file-folder').disabled=fileMirror.busy;
 }
 const fileMirrorSupported=()=>!!window.MemoTalkFS || (typeof window.showDirectoryPicker==='function'&&!!window.isSecureContext);
@@ -2511,7 +2521,7 @@ async function restoreFileMirrorHandle(){
   fileMirror.handle=saved.handle;fileMirror.linkId=saved.linkId;
   try{
     const permission=await fileMirror.handle.queryPermission({mode:'readwrite'});
-    fileMirrorStatus(permission==='granted'?(fileMirror.pending?'pending':'saved'):'pending',permission==='granted'?(fileMirror.pending?`${fileMirror.handle.name} · 이전 변경 사항 파일 반영 대기`:`연결됨: ${fileMirror.handle.name} · 변경 시 자동 파일 저장`):`${fileMirror.handle.name} · 파일 접근 권한 확인 필요`);
+    fileMirrorStatus('pending',permission==='granted'?`${fileMirror.handle.name} · 연결 복원됨 · 저장본 검증 전${fileMirror.pending?' · 이전 변경 사항 반영 대기':''}`:`${fileMirror.handle.name} · 파일 접근 권한 확인 필요`);
   }catch(_){fileMirrorStatus('pending','파일 폴더 권한을 다시 허용해 주세요.');}
 }
 function scheduleFileMirror(){
@@ -2524,7 +2534,7 @@ function scheduleFileMirror(){
   fileMirror.timer=setTimeout(()=>{
     if(!S.roomsLoaded){scheduleFileMirror();return;}
     runFileMirror(false).catch(()=>{});
-  },FILE_MIRROR_DELAY);
+  },fileMirrorDelay);
 }
 function enableFileMirrorChangeTracking(){
   for(const method of ['setRoom','updateRoom','deleteRoom','setMsg','updateMsg','deleteMsg','moveItems','applyTransfer']){
@@ -2550,7 +2560,7 @@ async function readMirrorIndex(root){
     const doc=JSON.parse(await file.text());
     if(doc?.format!=='memotalk-file-mirror'||doc.version!==1||typeof doc.linkId!=='string'||!doc.files||typeof doc.files!=='object')throw new Error('mirror_index');
     return doc;
-  }catch(error){if(error.name==='NotFoundError')return null;throw error;}
+  }catch(error){if(error.name==='NotFoundError')return null;if(error instanceof SyntaxError)throw Object.assign(new Error('mirror_index'),{code:'mirror_index',relativePath:FILE_MIRROR_INDEX,operation:'parse'});throw error;}
 }
 async function getMirrorFolder(root,pathParts,create=false){
   let dir=root;
@@ -2564,22 +2574,14 @@ async function readMirrorFile(root,path){
     return new Uint8Array(await (await dir.getFileHandle(parts.at(-1))).getFile().then(f=>f.arrayBuffer()));
   }catch(error){if(error.name==='NotFoundError')return null;throw error;}
 }
-async function writeMirrorFile(root,path,content){
+async function writeMirrorFile(root,path,content,expectedBytes){
   const parts=path.split('/'),dir=await getMirrorFolder(root,parts.slice(0,-1),true);
-  const handle=await dir.getFileHandle(parts.at(-1),{create:true}),writer=await handle.createWritable();
+  const handle=await dir.getFileHandle(parts.at(-1),{create:true}),writer=await handle.createWritable({expectedBytes});
   try {await writer.write(content);await writer.close();}
   catch(error){try{await writer.abort();}catch(_){} throw error;}
 }
-const mirrorDigest = content => `${content.length}:${zipCrc(content).toString(16)}`;
-async function removeEmptyMirrorParents(root,path){
-  const parts=path.split('/').slice(0,-1);
-  for(let i=parts.length;i>0;i--){
-    try {
-      const parent=await getMirrorFolder(root,parts.slice(0,i-1));
-      await parent.removeEntry(parts[i-1]); // Without recursive:true, never remove nonempty directories.
-    }catch(_){break;}
-  }
-}
+const mirrorLegacyDigest = content => `${content.length}:${zipCrc(content).toString(16)}`;
+const mirrorDigest = async content => 'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',content)),b=>b.toString(16).padStart(2,'0')).join('');
 async function isMirrorEmpty(handle){for await(const _entry of handle.values())return false;return true;}
 async function linkFileMirror(){
   if(!fileMirrorSupported()){
@@ -2604,7 +2606,14 @@ async function linkFileMirror(){
       }
       linkId=index.linkId;
     }else if(!await isMirrorEmpty(chosen)){
-      return toast('기존 파일이 있는 폴더예요. 기존 파일 보호를 위해 빈 폴더를 선택해 주세요.',true);
+      const remembered=await mirrorHandleStore('get');
+      const journalBytes=await readMirrorFile(chosen,MemoTalkMirror.JOURNAL);
+      let journal;try{journal=journalBytes&&JSON.parse(utf8Read.decode(journalBytes));}catch(_){}
+      if(journal?.linkId&&trusted.includes(journal.linkId)&&journal.linkId===remembered?.linkId){
+        linkId=journal.linkId;
+      }else{
+        return reviewIncompleteMirror(chosen);
+      }
     }else linkId=crypto.randomUUID?.()||newId();
     fileMirror.handle=chosen;fileMirror.linkId=linkId;fileMirror.pending=true;
     try{localStorage.setItem('memotalk.fileMirror.pending','1');}catch(_){}
@@ -2613,7 +2622,7 @@ async function linkFileMirror(){
     await mirrorHandleStore('put',{handle:chosen,linkId});
     fileMirrorStatus('pending',`${chosen.name} · 파일 저장 준비`);
     await runFileMirror(true);
-  }catch(error){fileMirrorStatus('error',`폴더 연결 오류: ${String(error?.message||'접근할 수 없음')}`);}
+  }catch(error){if(error.message==='mirror_index')return reviewIncompleteMirror(chosen);const d=mirrorFailure(error);fileMirrorStatus('error',`폴더 연결 오류: ${d.code} · ${d.operation} · ${d.relativePath} · 진단 메뉴 확인`);}
 }
 async function disconnectFileMirror(){
   clearTimeout(fileMirror.timer);
@@ -2625,6 +2634,9 @@ async function disconnectFileMirror(){
 async function showFileFolderMenu(){
   const options=[
     {icon:'folder',label:fileMirror.handle?'다른 저장 폴더 선택':'실제 저장 폴더 연결',run:linkFileMirror},
+    {icon:'edit',label:'자동 저장 간격 조절',run:showMirrorDelay},
+    {icon:'load',label:'마지막 저장 오류 진단',run:showMirrorDiagnostics},
+    {icon:'load',label:'현재 폴더 Sync 저장본 완결성 검사',run:verifyMirrorSnapshot},
     {icon:'save',label:'지금 Markdown 파일로 저장/갱신',run:()=>runFileMirror(true)},
     {icon:'save',label:'Markdown ZIP 다운로드 (갤럭시 호환)',run:()=>exportTransfer()},
     {icon:'edit',label:`변경 후 파일 자동 반영 ${fileMirror.auto?'끄기':'켜기'}`,run:()=>{
@@ -2634,11 +2646,54 @@ async function showFileFolderMenu(){
       if(fileMirror.auto&&fileMirror.handle)scheduleFileMirror();
     }},
   ];
+  if(fileMirror.handle)options.push({icon:'load',label:'불완전 저장본 검사·새 폴더 복구 (원본 유지)',run:()=>reviewIncompleteMirror(fileMirror.handle)});
   if(fileMirror.handle)options.push({icon:'close',label:'저장 폴더 연결 해제 (파일은 유지)',run:disconnectFileMirror});
-  return menu('실제 Markdown 파일 저장',options,'Windows Chrome/Edge: 빈 폴더를 선택하세요. 편집 후 앱이 열린 동안 자동 반영됩니다. Android 등 미지원 브라우저: ZIP 다운로드 후 내 파일에서 압축을 풀어 주세요. 다른 기기와의 자동 동기화·외부 파일 수정 가져오기는 아직 지원하지 않습니다.');
+  return menu('실제 Markdown 파일 저장',options,'빈 전용 폴더를 선택하세요. 로컬 파일 저장과 원격 Sync 완료는 다릅니다. Obsidian Sync에서는 해당 폴더 제외 여부와 각 기기의 Sync all other types 설정을 확인하세요. 다른 기기 메모톡으로 자동 가져오기와 양방향 편집은 아직 지원하지 않습니다.');
 }
 $('#btn-file-folder').addEventListener('click',showFileFolderMenu);
-// Verify the entire directory before writing anything: never silently overwrite an externally edited file.
+// Diagnostics stay on this device; export only on an explicit user action.
+function mirrorFailure(error){
+  const diagnostic={at:new Date().toISOString(),code:error.code||error.message||error.name,
+    operation:error.operation||'prepare',relativePath:error.relativePath||'',
+    errno:error.errno,syscall:error.syscall,path:error.path,dest:error.dest,message:error.message};
+  fileMirror.lastError=diagnostic;
+  try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(diagnostic));}catch(_){}
+  return diagnostic;
+}
+function showMirrorDiagnostics(){
+  let diagnostic=fileMirror.lastError;
+  try{diagnostic ||= JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')||'null');}catch(_){}
+  const sheet=openScrim(`<h2>파일 저장 진단</h2><p>로컬 저장 결과이며 Obsidian Sync 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(diagnostic?JSON.stringify(diagnostic,null,2):'기록된 오류 없음')}</pre><button class="ok">닫기</button>`);
+  sheet.querySelector('button').onclick=closeSheet;
+}
+function showMirrorDelay(){
+  const sheet=openScrim(`<h2>파일 자동 저장 간격</h2><label>지연 시간 (ms) <input type="number" min="${FILE_MIRROR_DELAY_MIN}" max="${FILE_MIRROR_DELAY_MAX}" step="${FILE_MIRROR_DELAY_STEP}" value="${fileMirrorDelay}"></label><output>${fileMirrorDelay} ms</output><button type="button">↺ 기본값</button>`);
+  const input=sheet.querySelector('input'),output=sheet.querySelector('output');
+  const apply=()=>{const value=Number(input.value);if(input.value===''||!Number.isFinite(value)||value<FILE_MIRROR_DELAY_MIN||value>FILE_MIRROR_DELAY_MAX)return;
+    fileMirrorDelay=value;output.textContent=`${value} ms`;try{localStorage.setItem('memotalk.fileMirror.delay',String(value));}catch(_){}
+    if(fileMirror.pending)scheduleFileMirror();};
+  input.addEventListener('input',apply);
+  sheet.querySelector('button').onclick=()=>{input.value=FILE_MIRROR_DELAY;apply();try{localStorage.removeItem('memotalk.fileMirror.delay');}catch(_){}};
+}
+async function verifyMirrorSnapshot(){
+  if(!fileMirror.handle)return toast('저장 폴더를 먼저 연결하세요.');
+  try{
+    const result=await MemoTalkMirror.verifySnapshot({root:fileMirror.handle,read:readMirrorFile,digest:mirrorDigest});
+    toast(`이 기기에 있는 저장본 ${result.count}개 파일 검증 완료. 원격 전송 상태는 Obsidian에서 확인하세요.`,true);
+  }catch(error){const d=mirrorFailure(error);toast(`저장본 미완료 또는 변경됨 · ${d.code} · ${d.relativePath}`,true);}
+}
+async function reviewIncompleteMirror(source){
+  // Legacy exports have no journal. Never adopt or repair their bytes in place.
+  const {entries}=await buildTransferEntries();
+  let matched=0,missing=0,different=0,empty=0;
+  for(const [path,value] of entries){
+    const data=await readMirrorFile(source,path);
+    if(data===null)missing++;else if(MemoTalkMirror.same(data,bytes(value)))matched++;
+    else{different++;if(data.length===0)empty++;}
+  }
+  const proceed=await ask({title:'불완전 저장본 검사',body:`현재 앱 데이터와 비교: 일치 ${matched}, 누락 ${missing}, 다른 내용 ${different} (빈 파일 ${empty}). 원본 폴더는 그대로 보존합니다. 새 빈 폴더에 현재 앱 데이터의 완전한 저장본을 만들까요? 외부에서 바꾼 내용은 가져오지 않습니다.`,ok:'새 폴더 선택'});
+  if(proceed)await linkFileMirror();
+}
 async function runFileMirror(interactive=false){
   clearTimeout(fileMirror.timer);
   const root=fileMirror.handle;
@@ -2649,65 +2704,24 @@ async function runFileMirror(interactive=false){
   fileMirrorStatus('pending',`${root.name} · Markdown 파일 준비 중…`);
   try{
     if(!await ensureMirrorPermission(root,interactive))throw new Error('mirror_permission');
-    const old=await readMirrorIndex(root);
-    if(old&&old.linkId!==fileMirror.linkId)throw new Error('mirror_other');
-    if(!old&&!(await isMirrorEmpty(root)))throw new Error('mirror_notempty');
+    await window.MemoTalkFS?.beginMirror?.(root);
     const {entries}=await buildTransferEntries();
-    const wanted=new Map(entries.map(([path,data])=>[path,bytes(data)]));
-    const digests={};
-    for(const [path,data] of wanted)digests[path]=mirrorDigest(data);
-    // Preflight checks include removed paths; external edits or missing tracked files are not overwritten.
-    const watched=new Set([...wanted.keys(),...Object.keys(old?.files||{})]);
-    for(const path of watched){
-      const present=await readMirrorFile(root,path),expected=old?.files?.[path],next=digests[path];
-      if(present===null){
-        if(expected)throw new Error('mirror_external');
-        continue;
-      }
-      const current=mirrorDigest(present);
-      if(expected){if(current!==expected&&current!==next)throw new Error('mirror_external');}
-      else if(current!==next)throw new Error('mirror_external');
-    }
-    // Write only changed files. manifest.json is written after its corresponding memo files.
-    let changes=0;
-    const ordered=[...wanted].sort((a,b)=>(a[0]==='manifest.json')-(b[0]==='manifest.json'));
-    for(const [path,data] of ordered){
-      const existing=await readMirrorFile(root,path);
-      if(existing!==null&&mirrorDigest(existing)===digests[path])continue;
-      await writeMirrorFile(root,path,data);changes++;
-    }
-    // Superseded/deleted files are moved to a time-stamped history directory, not discarded.
-    const obsolete=Object.keys(old?.files||{}).filter(path=>!wanted.has(path));
-    const archivedAt=new Date().toISOString().replace(/[:.]/g,'-');
-    for(const path of obsolete){
-      const data=await readMirrorFile(root,path);
-      if(data===null)continue;
-      const historyPath=`.memotalk-history/${archivedAt}/${path}`;
-      await writeMirrorFile(root,historyPath,data);
-      const parts=path.split('/'),dir=await getMirrorFolder(root,parts.slice(0,-1));
-      await dir.removeEntry(parts.at(-1));
-      await removeEmptyMirrorParents(root,path);
-    }
-    // Update index last. A partially interrupted write never marks stale contents as synchronized.
-    const index={format:'memotalk-file-mirror',version:1,linkId:fileMirror.linkId,savedAt:new Date().toISOString(),files:digests};
-    await writeMirrorFile(root,FILE_MIRROR_INDEX,utf8.encode(JSON.stringify(index,null,2)));
+    const result=await MemoTalkMirror.save({root,linkId:fileMirror.linkId,
+      entries:entries.map(([path,value])=>[path,bytes(value)]),read:readMirrorFile,write:writeMirrorFile,digest:mirrorDigest,legacyDigest:mirrorLegacyDigest,
+      transactionId:crypto.randomUUID?.()||newId()});
     fileMirror.pending=false;
     try{localStorage.removeItem('memotalk.fileMirror.pending');}catch(_){}
-    fileMirrorStatus('saved',`${root.name} · ${wanted.size}개 파일 반영 완료${obsolete.length?` · 이전 파일 ${obsolete.length}개 보관`:''}`);
-    if(interactive)toast(`실제 폴더에 파일 ${wanted.size}개를 저장했어요. (Markdown ${[...wanted.keys()].filter(path=>path.endsWith('.md')).length}개)`);
+    fileMirrorStatus('saved',`${root.name} · 로컬 ${result.count}개 파일 읽기 검증 완료 · 원격 Sync 미확인${result.retained?` · 이전 경로 ${result.retained}개 유지`:''}`);
+    if(interactive)toast(`로컬 파일 ${result.count}개 저장·검증 완료. Obsidian Sync 전송 상태는 Obsidian에서 확인하세요.`);
   }catch(error){
     fileMirror.pending=true;
     try{localStorage.setItem('memotalk.fileMirror.pending','1');}catch(_){}
-    const code=error?.message;
-    const message=code==='mirror_permission'?'폴더 접근 권한이 필요해요. 파일 저장에서 다시 허용하세요.':
-      code==='mirror_external'?'외부에서 파일이 바뀌었거나 삭제됐어요. 덮어쓰지 않았습니다. 기존 파일을 확인해 주세요.':
-      code==='mirror_other'?'다른 저장본 폴더라서 덮어쓰지 않았어요.':
-      code==='mirror_notempty'?'기존 파일이 있는 폴더라서 저장을 중단했어요.':
-      code==='transfer_image'?'일부 사진을 읽지 못해 파일 저장을 중단했어요.':
-      '실제 폴더 저장 실패 · 메모톡 내부 메모는 유지됩니다.';
+    const d=mirrorFailure(error);
+    const message=`파일 저장 중단 · ${d.code} · ${d.operation} · ${d.relativePath||'(준비 단계)'} · 내부 메모 유지 · 파일 저장 메뉴에서 진단 확인`;
     fileMirrorStatus('error',message);
     if(interactive)toast(message,true);
   }finally{
+    try{await window.MemoTalkFS?.endMirror?.(root);}catch(error){mirrorFailure(error);}
     fileMirror.busy=false;
     $('#btn-file-folder').disabled=false;
     if(fileMirror.dirty){fileMirror.dirty=false;scheduleFileMirror();}

@@ -21,7 +21,8 @@
     },
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "verified-write.js"
     ],
     "extraResources": [
       {

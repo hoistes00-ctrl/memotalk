@@ -51,3 +51,8 @@ id_ed25519
 *.db
 *.db-wal
 *.db-shm
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/
+output/local-diagnostics/

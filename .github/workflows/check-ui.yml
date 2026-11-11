@@ -14,7 +14,10 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,3 +25,5 @@ jobs:
           node-version: '22'
       - name: Check source syntax and UI features
         run: node tests/check-ui.mjs
+      - name: Test verified mirror, recovery and native bridge
+        run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs
