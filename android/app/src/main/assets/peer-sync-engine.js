@@ -24,6 +24,11 @@
     return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),b=>b.toString(16).padStart(2,'0')).join('');
   }
   const fail=(code,path='')=>Object.assign(new Error(code),{code,relativePath:path});
+  function assetPath(sha256,mime){
+    const extension={'image/png':'png','image/jpeg':'jpg','image/gif':'gif','image/webp':'webp','image/bmp':'bmp'}[mime];
+    if(!HASH.test(sha256)||!extension)throw fail('peer_image');
+    return DIRECTORY+'/assets/'+sha256+'.'+extension;
+  }
   function entityKey(entity){
     if(!entity||!['room','msg'].includes(entity.kind)||!ID.test(entity.id)||entity.kind==='msg'&&!ID.test(entity.rid))throw fail('peer_entity');
     return canonical(entity.kind==='room'?['room',entity.id]:['msg',entity.rid,entity.id]);
@@ -38,7 +43,7 @@
     }else{
       if(typeof(value.text??'')!=='string'||!Number.isFinite(value.ts))throw fail('peer_message');
       if(value.images!==undefined&&(!Array.isArray(value.images)||value.images.some(im=>!im||!HASH.test(im.sha256)||
-          im.path!==DIRECTORY+'/assets/'+im.sha256+'.bin'||!/^image\/(png|jpeg|gif|webp|bmp)$/.test(im.mime))))throw fail('peer_image');
+          im.path!==assetPath(im.sha256,im.mime))))throw fail('peer_image');
       if(value.comments!==undefined&&(!Array.isArray(value.comments)||value.comments.some(c=>!c||!ID.test(c.id)||typeof c.text!=='string'||!Number.isFinite(c.ts))))throw fail('peer_comments');
       if(Array.isArray(value.conflicts)){
         value.conflicts=value.conflicts.filter(ref=>!String(ref.id).startsWith('peer_'));
@@ -198,12 +203,26 @@
     }
     async resolve(key,id){
       if(this.running)throw fail('peer_busy');
-      const state=await this.load(),view=project(state),selected=state?.operations[id];
+      this.running=true;
+      try{
+      const state=await this.load();if(!state)throw fail('peer_resolution');
+      const view=project(state),selected=state.operations[id];
       if(!selected||entityKey(selected.entity)!==key)throw fail('peer_resolution');
       const op=await operation(this.groupId,this.actor,selected,view.heads[key]||[]);
       state.operations[op.id]=op;state.outbox.push(op.id);
       await this.save(state);
+      }finally{this.running=false;}
     }
   }
-  return {VERSION,GROUP_FILE,DIRECTORY,canonical,hash,entityKey,normalize,fingerprints,newState,operation,validate,project,harvest,Replica};
+  function readable(op){
+    if(op.entity.kind!=='msg'||op.value===null)return null;
+    const value=op.value;
+    const meta='---\nmemotalk_id: '+JSON.stringify(op.entity.id)+'\nroom_id: '+JSON.stringify(op.entity.rid)+
+      '\nmemotalk_revision: '+JSON.stringify(op.id)+'\nmemotalk_device: '+JSON.stringify(op.actor)+'\n---\n\n';
+    const comments=(value.comments||[]).map(c=>'> '+c.text.replace(/\n/g,'\n> ')).join('\n\n');
+    const images=(value.images||[]).map(im=>'![](../../../assets/'+im.path.split('/').at(-1)+')').join('\n');
+    return {path:DIRECTORY+'/readable/'+op.entity.rid+'/'+op.entity.id+'/'+op.id+'.md',
+      data:encoder.encode(meta+(value.text||'')+(comments?'\n\n## 댓글\n\n'+comments:'')+(images?'\n\n'+images:'')+'\n')};
+  }
+  return {VERSION,GROUP_FILE,DIRECTORY,canonical,hash,assetPath,readable,entityKey,normalize,fingerprints,newState,operation,validate,project,harvest,Replica};
 });

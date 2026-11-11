@@ -2749,7 +2749,7 @@ async function runFileMirror(interactive=false){
 peerClient=window.MemoTalkPeerClient.create({
   backend:()=>backend,engine:window.MemoTalkPeer,
   read:readMirrorFile,write:writeMirrorFile,folder:getMirrorFolder,permission:ensureMirrorPermission,
-  imageData:imageDataUrl,archiveRoomId,status:fileMirrorStatus,ask,menu,toast,openScrim,closeSheet,esc,
+  imageData:imageDataUrl,archiveRoomId:rid=>archiveRoomId(rid),status:fileMirrorStatus,ask,menu,toast,openScrim,closeSheet,esc,
   editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
   ready:()=>S.roomsLoaded,
   applied:()=>{S.gcache=null;scheduleVaultAutoBackup();},

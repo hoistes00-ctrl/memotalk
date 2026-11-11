@@ -48,6 +48,10 @@
     const transport={
       async read(path){return read(path);},
       async put(path,data){
+        if(path.startsWith(P.DIRECTORY+'/operations/')){
+          const note=P.readable(JSON.parse(decoder.decode(data)));
+          if(note)await transport.put(note.path,note.data);
+        }
         const existing=await read(path);
         if(existing!==null){if(!same(existing,data))throw error('peer_immutable_conflict',path);return;}
         await options.write(client.root,path,data,null);
@@ -65,7 +69,7 @@
       const data=await options.imageData(image),match=/^data:(image\/(?:png|jpeg|gif|webp|bmp));base64,([\s\S]+)$/.exec(data||'');
       if(!match)throw error('peer_image_format');
       const binary=atob(match[2]),bytes=Uint8Array.from(binary,c=>c.charCodeAt(0)),sha256=await P.hash(bytes);
-      const path=P.DIRECTORY+'/assets/'+sha256+'.bin';assets[path]=bytes;
+      const path=P.assetPath(sha256,match[1]);assets[path]=bytes;
       return {sha256,path,mime:match[1],...(image.w?{w:image.w}:{}),...(image.h?{h:image.h}:{})};
     }
     async function capture(){
@@ -172,7 +176,7 @@
       }catch(e){
         client.lastError={code:e.code||e.message,operation:e.operation||'peer-cycle',relativePath:e.relativePath||'',at:new Date().toISOString()};
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
-        const pending=['peer_edit_in_progress','peer_attachment_pending','peer_stale','EBUSY'].includes(client.lastError.code);
+        const pending=['peer_edit_in_progress','peer_attachment_pending','peer_stale','peer_busy','EBUSY'].includes(client.lastError.code);
         options.status(pending?'pending':'error',`공유 ${pending?'대기':'중단'} · ${client.lastError.code} · ${client.lastError.relativePath}`);
       }finally{client.busy=false;schedule(settings.poll);}
     }
@@ -190,6 +194,7 @@
       if(client.busy)return options.toast('공유 처리 중입니다. 완료 후 다시 선택하세요.');
       try{
         getBackend();
+        if(createGroup&&window.AndroidMemoTalk)throw error('peer_create_on_windows_first');
         if(!await options.ask({title:createGroup?'새 공유 그룹 만들기':'기존 공유 그룹 참여',body:'현재 앱 메모와 다른 기기 메모를 합쳐 표시합니다. 충돌 원문은 모두 보존하며, 앱이 열린 동안 자동 반영합니다. 두 기기에서 Obsidian Sync의 Sync all other types를 켜야 합니다. Windows에서 먼저 그룹을 만든 뒤, 휴대폰에서 내려받은 같은 폴더로 참여하세요. 기존 파일은 수정·삭제하지 않습니다.',ok:'폴더 선택'}))return;
         const root=await window.showDirectoryPicker({mode:'readwrite'});
         if(!await options.permission(root,true))throw error('peer_permission');
@@ -236,7 +241,7 @@
       sheet.querySelectorAll('[data-restore]').forEach(button=>button.onclick=async()=>{
         const op=state.operations[button.dataset.restore];options.closeSheet();
         if(!await options.ask({title:'이 버전으로 복원할까요?',body:'현재 버전과 기존 이력은 모두 남습니다. 선택한 내용을 새 변경으로 두 기기에 전달합니다.',ok:'복원'}))return;
-        try{await client.replica.resolve(P.entityKey(op.entity),op.id);schedule(TIMER_MIN);}catch(e){options.toast('복원 대기 · '+(e.code||e.message),true);}
+        try{if(navigator.locks?.request)await navigator.locks.request('memotalk-peer-'+client.groupId,()=>client.replica.resolve(P.entityKey(op.entity),op.id));else await client.replica.resolve(P.entityKey(op.entity),op.id);schedule(TIMER_MIN);}catch(e){options.toast('복원 대기 · '+(e.code||e.message),true);}
       });
     }
     function menu(){

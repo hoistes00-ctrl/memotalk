@@ -10,6 +10,7 @@ def canSignRelease = releaseKeystore && releasePassword && releaseAlias && relea
 android {
     namespace 'kr.memotalk.app'
     compileSdk 35
+    testBuildType 'sharingPreview'
     defaultConfig {
         applicationId 'kr.memotalk.app'
         minSdk 26
