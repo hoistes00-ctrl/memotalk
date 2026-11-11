@@ -7,9 +7,10 @@ const os=require('node:os');
 const {verifiedWrite}=require('../windows/verified-write');
 const MAX_BODY=64*1024*1024;
 async function start(){
-  const root=await fs.mkdtemp(path.join(os.tmpdir(),'memotalk-two-device-'));
-  const devices={windows:{connected:false,online:true,lease:null},android:{connected:false,online:true,lease:null}};
-  for(const name of Object.keys(devices))await fs.mkdir(path.join(root,name));
+  const root=process.env.MEMOTALK_TEST_ROOT||await fs.mkdtemp(path.join(os.tmpdir(),'memotalk-two-device-'));
+  if(!path.resolve(root).startsWith(path.join(path.resolve(os.tmpdir()),'memotalk-two-device-')))throw Error('Only synthetic test directories are allowed');
+  const devices={windows:{connected:false,online:true,lease:null,generation:0},android:{connected:false,online:true,lease:null,generation:0}};
+  for(const name of Object.keys(devices)){await fs.mkdir(path.join(root,name),{recursive:true});try{await fs.access(path.join(root,name,'memotalk-peer-group.json'));devices[name].connected=true;}catch(_){}}
   async function filesAt(dir,prefix=''){
     const files=[];
     for(const item of await fs.readdir(path.join(dir,prefix),{withFileTypes:true})){
@@ -29,11 +30,12 @@ async function start(){
   }
   async function native(device,command,args){
     const d=devices[device];if(!d)throw Error('bad device');
-    const status=()=>({connected:d.connected,name:'Synthetic '+device+' vault',folderToken:device+'-token',atomicWrites:true});
+    const status=()=>({connected:d.connected,name:'Synthetic '+device+' vault',folderToken:device+'-token-'+d.generation,atomicWrites:true});
+    if(command==='reloadContext'){d.generation++;d.lease=null;return true;}
     if(command==='hasFolder')return status();
     if(command==='pickFolder'){d.connected=true;return status();}
     if(command==='disconnect'){d.connected=false;return true;}
-    if(args.folderToken!==device+'-token')throw Object.assign(Error('stale folder'),{code:'ESTALE'});
+    if(args.folderToken!==device+'-token-'+d.generation)throw Object.assign(Error('stale folder'),{code:'ESTALE'});
     if(command==='beginMirror'){if(d.lease)throw Object.assign(Error('busy'),{code:'EBUSY'});d.lease=device+'-lease';return {leaseId:d.lease};}
     if(d.lease&&args.leaseId!==d.lease)throw Object.assign(Error('busy'),{code:'EBUSY'});
     if(command==='endMirror'){d.lease=null;return true;}
@@ -79,7 +81,7 @@ async function start(){
       res.writeHead(200,{'content-type':name.endsWith('.js')?'application/javascript':'text/html; charset=utf-8'});res.end(data);
     }catch(e){res.writeHead(500);res.end(e.message);}
   });
-  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  await new Promise(resolve=>server.listen(Number(process.env.MEMOTALK_TEST_PORT||0),'127.0.0.1',resolve));
   return {server,root,port:server.address().port};
 }
 if(require.main===module)start().then(({port,root})=>console.log(JSON.stringify({port,root}))).catch(e=>{console.error(e);process.exitCode=1;});

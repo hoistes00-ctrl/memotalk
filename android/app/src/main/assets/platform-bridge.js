@@ -3,12 +3,15 @@
    to the explicitly selected folder. Desktop/Android do not auto-sync. */
 (() => {
   'use strict';
+  // Four 32-bit words identify this renderer session; increasing adds nonce entropy.
+  const SESSION_NONCE_WORDS=4;
+  const clientSession=crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint32Array(SESSION_NONCE_WORDS)),n=>n.toString(16)).join('-');
   const native = window.MemoTalkNative || (window.AndroidMemoTalk ? {
     request(command, args = {}) {
       return new Promise((resolve, reject) => {
         const id = ++sequence;
         pending.set(id, { resolve, reject });
-        try { window.AndroidMemoTalk.postMessage(JSON.stringify({ id, command, args })); }
+        try { window.AndroidMemoTalk.postMessage(JSON.stringify({ id, command, args, session:clientSession })); }
         catch (error) { pending.delete(id); reject(error); }
       });
     }
@@ -18,6 +21,7 @@
   let sequence = 0;
   const pending = new Map();
   window.__memoNativeResolve = response => {
+    if(response.session&&response.session!==clientSession)return;
     const p = pending.get(response.id);
     if (!p) return;
     pending.delete(response.id);

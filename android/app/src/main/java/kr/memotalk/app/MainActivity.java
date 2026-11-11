@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
     private volatile String mirrorLease;
     private int waitingRequestId = -1;
     private String waitingExportBase64;
+    private String waitingSession="";
     private ValueCallback<Uri[]> fileChooserCallback;
 
     @Override public void onCreate(Bundle state) {
@@ -125,6 +126,9 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon){
+                mirrorLease=null;folderToken=UUID.randomUUID().toString();
+            }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (!"appassets.androidplatform.net".equals(url.getHost())) return null;
@@ -158,33 +162,35 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void postMessage(String payload) {
             io.execute(() -> {
                 int id = -1;
-                String command="request";JSONObject args=null;
+                String command="request",session="";JSONObject args=null;
                 try {
                     JSONObject req = new JSONObject(payload);
-                    id = req.getInt("id");
+                    id = req.getInt("id");session=req.optString("session","");
                     command = req.getString("command");
                     args = req.optJSONObject("args");
                     if(args==null) args = new JSONObject();
                     if (command.equals("pickFolder")) {
                         final int callbackId=id;
-                        runOnUiThread(() -> chooseDirectory(callbackId));
+                        final String requestSession=session;
+                        runOnUiThread(() -> chooseDirectory(callbackId,requestSession));
                         return;
                     }
                     if (command.equals("download")) {
                         final int callbackId=id;
                         final JSONObject data=args;
-                        runOnUiThread(() -> exportFile(callbackId, data));
+                        final String requestSession=session;
+                        runOnUiThread(() -> exportFile(callbackId, data,requestSession));
                         return;
                     }
-                    respond(id, perform(command,args), null);
-                } catch (Exception error) { respond(id, null, describeFailure(error,command,args)); }
+                    respond(id, perform(command,args), null,session);
+                } catch (Exception error) { respond(id, null, describeFailure(error,command,args),session); }
             });
         }
     }
-    private void respond(int id, Object result, Object failure) {
+    private void respond(int id,Object result,Object failure,String session) {
         try {
             JSONObject response = new JSONObject();
-            response.put("id", id);
+            response.put("id", id);response.put("session",session);
             if(failure != null) response.put("error", failure);
             else response.put("result", result == null ? JSONObject.NULL : result);
             String script = "window.__memoNativeResolve && window.__memoNativeResolve(" + response.toString() + ")";
@@ -211,18 +217,19 @@ public class MainActivity extends Activity {
         JSONObject obj=new JSONObject();obj.put("connected",rootTree!=null);obj.put("name",getTreeName());
         obj.put("folderToken",folderToken);obj.put("atomicWrites",true);return obj;
     }
-    private void chooseDirectory(int id) {
-        if(mirrorLease!=null||waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","pickFolder"),"pickFolder",null));return;}
-        waitingRequestId = id;
+    private void chooseDirectory(int id,String session) {
+        if(mirrorLease!=null||waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","pickFolder"),"pickFolder",null),session);return;}
+        waitingRequestId = id;waitingSession=session;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.putExtra(Intent.EXTRA_LOCAL_ONLY,true);
+        if(rootTree!=null)try{intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,getRootDoc());}catch(Exception ignored){}
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {startActivityForResult(intent, REQUEST_TREE);}
-        catch (Exception e) {waitingRequestId=-1; respond(id,null,e.getMessage());}
+        catch (Exception e) {waitingRequestId=-1; respond(id,null,e.getMessage(),session);}
     }
-    private void exportFile(int id, JSONObject args) {
-        if(waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","download"),"download",args));return;}
-        waitingRequestId=id;
+    private void exportFile(int id, JSONObject args,String session) {
+        if(waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","download"),"download",args),session);return;}
+        waitingRequestId=id;waitingSession=session;
         waitingExportBase64=args.optString("base64", "");
         String name=args.optString("name", "MemoTalk.zip").replaceAll("[\\\\/\\p{Cntrl}]", "_");
         String mime = name.endsWith(".zip") ? "application/zip" : name.endsWith(".json") ? "application/json" :
@@ -232,7 +239,7 @@ public class MainActivity extends Activity {
         intent.setType(mime);
         intent.putExtra(Intent.EXTRA_TITLE,name);
         try {startActivityForResult(intent, REQUEST_EXPORT);}
-        catch (Exception e) { waitingRequestId=-1;waitingExportBase64=null;respond(id,null,e.getMessage()); }
+        catch (Exception e) { waitingRequestId=-1;waitingExportBase64=null;respond(id,null,e.getMessage(),session); }
     }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode,resultCode,intent);
@@ -245,9 +252,9 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode != REQUEST_TREE && requestCode != REQUEST_EXPORT) return;
-        int id=waitingRequestId; waitingRequestId=-1;
+        int id=waitingRequestId;String session=waitingSession;waitingRequestId=-1;waitingSession="";
         if(resultCode!=RESULT_OK || intent==null || intent.getData()==null) {
-            waitingExportBase64=null;respond(id,null,"cancelled");return;
+            waitingExportBase64=null;respond(id,null,"cancelled",session);return;
         }
         Uri uri=intent.getData();
         if(requestCode==REQUEST_TREE) {
@@ -257,9 +264,9 @@ public class MainActivity extends Activity {
                 if(granted!=(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))throw nativeFailure("EACCES","pickFolder");
                 getContentResolver().takePersistableUriPermission(uri,granted);
                 rootTree=uri;folderToken=UUID.randomUUID().toString();prefs.edit().putString("rootTree",uri.toString()).apply();
-                try { respond(id,folderStatus(),null); }
-                catch(Exception e) {respond(id,null,e.getMessage());}
-            } catch (Exception e) {respond(id,null,e.getMessage());}
+                try { respond(id,folderStatus(),null,session); }
+                catch(Exception e) {respond(id,null,e.getMessage(),session);}
+            } catch (Exception e) {respond(id,null,e.getMessage(),session);}
         } else {
             String content=waitingExportBase64;waitingExportBase64=null;
             io.execute(() -> {
@@ -270,8 +277,8 @@ public class MainActivity extends Activity {
                         if(stream==null)throw new Exception("파일 쓰기 실패");
                         stream.write(data);
                     }
-                    respond(id,true,null);
-                } catch(Exception e) { respond(id,null,e.getMessage()); }
+                    respond(id,true,null,session);
+                } catch(Exception e) { respond(id,null,e.getMessage(),session); }
             });
         }
     }

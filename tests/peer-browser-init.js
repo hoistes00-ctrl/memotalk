@@ -11,9 +11,11 @@
     localStorage.setItem('memotalk.peer.debounce','50');
   }
   const rpc=async(command,args={})=>(await fetch('/native',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({device,command,args})})).json();
-  if(device==='windows')window.MemoTalkNative={request:rpc};
+  const ready=rpc('reloadContext');
+  const request=async(command,args)=>{await ready;return rpc(command,args);};
+  if(device==='windows')window.MemoTalkNative={request};
   else window.AndroidMemoTalk={postMessage(payload){
-    const {id,command,args}=JSON.parse(payload);
-    rpc(command,args).then(r=>window.__memoNativeResolve({id,result:r.result,error:r.error}));
+    const {id,command,args,session}=JSON.parse(payload);
+    request(command,args).then(r=>window.__memoNativeResolve({id,session,result:r.result,error:r.error}));
   }};
 })();

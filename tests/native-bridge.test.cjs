@@ -49,7 +49,7 @@ test('native write retains real filesystem errno, syscall and stage; rejects tra
 function bridge(request) {
   const store=new Map();
   const context=vm.createContext({window:{MemoTalkNative:{request}},localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)},
-    Uint8Array,TextEncoder,TextDecoder,ArrayBuffer,Blob,File,DOMException,btoa,atob,console});
+    Uint8Array,TextEncoder,TextDecoder,ArrayBuffer,Blob,File,DOMException,btoa,atob,console,crypto:require('node:crypto').webcrypto});
   vm.runInContext(fs.readFileSync('shared/platform-bridge.js','utf8'),context);
   return context.window;
 }

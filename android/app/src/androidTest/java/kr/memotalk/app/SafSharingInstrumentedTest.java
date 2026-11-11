@@ -9,6 +9,11 @@ import android.util.Base64;
 import android.webkit.WebView;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.uiautomator.UiDevice;
+import androidx.test.uiautomator.UiObject2;
+import androidx.test.uiautomator.By;
+import androidx.test.uiautomator.Until;
+import java.util.regex.Pattern;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,14 +55,36 @@ public class SafSharingInstrumentedTest {
             while(shell.read()!=-1){}
         }
         Context target=instrumentation.getTargetContext();
+        target.getSharedPreferences("memotalk-native",Context.MODE_PRIVATE).edit().clear().commit();
         activity=(MainActivity)instrumentation.startActivitySync(new Intent(target,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Field root=MainActivity.class.getDeclaredField("rootTree");root.setAccessible(true);
         root.set(activity,DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents","primary:Documents/"+leaf));
-        Field nonce=MainActivity.class.getDeclaredField("folderToken");nonce.setAccessible(true);token=(String)nonce.get(activity);
+        Field nonce=MainActivity.class.getDeclaredField("folderToken");nonce.setAccessible(true);
         Field view=MainActivity.class.getDeclaredField("web");view.setAccessible(true);web=(WebView)view.get(activity);
         perform=MainActivity.class.getDeclaredMethod("perform",String.class,JSONObject.class);perform.setAccessible(true);
         waitJavaScript("typeof window.MemoTalkPeer==='object' && typeof window.MemoTalkFS==='object'");
+        js("localStorage.clear()");
+        // Use the exact system-picker grant path used by a real user. Shell identity
+        // cannot grant arbitrary document-tree access and is dropped before choosing.
+        instrumentation.getUiAutomation().dropShellPermissionIdentity();
+        final String oldToken=(String)nonce.get(activity);
+        Method choose=MainActivity.class.getDeclaredMethod("chooseDirectory",int.class,String.class);choose.setAccessible(true);
+        instrumentation.runOnMainSync(()->{try{choose.invoke(activity,999,"instrumentation-session");}catch(Exception e){throw new RuntimeException(e);}});
+        UiDevice device=UiDevice.getInstance(instrumentation);
+        UiObject2 select=device.wait(Until.findObject(By.text(Pattern.compile("(?i)use this folder"))),WAIT_MS);
+        if(select==null)select=device.wait(Until.findObject(By.res(Pattern.compile(".*:id/action_menu_select"))),WAIT_MS);
+        assertNotNull("System folder picker did not expose selection in "+device.getCurrentPackageName(),select);
+        assertTrue("Test folder is not selectable",select.isEnabled());select.click();
+        UiObject2 allow=device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))),5000);
+        if(allow!=null)allow.click();
+        long until=System.currentTimeMillis()+WAIT_MS;
+        while(oldToken.equals(nonce.get(activity))&&System.currentTimeMillis()<until)Thread.sleep(POLL_MS);
+        assertNotEquals("Folder picker did not grant access",oldToken,nonce.get(activity));
+        token=(String)nonce.get(activity);
+        assertEquals("System picker must select only the new synthetic test directory","primary:Documents/"+leaf,DocumentsContract.getTreeDocumentId((Uri)root.get(activity)));
+        assertTrue("Persistent tree permission must be held",target.getContentResolver().getPersistedUriPermissions().stream().anyMatch(p->p.isReadPermission()&&p.isWritePermission()&&p.getUri().equals(rootUri(activity))));
     }
+    private Uri rootUri(MainActivity owner){try{Field field=MainActivity.class.getDeclaredField("rootTree");field.setAccessible(true);return (Uri)field.get(owner);}catch(Exception e){throw new RuntimeException(e);}}
     @After public void tearDown(){
         if(activity!=null)instrumentation.runOnMainSync(()->activity.finish());
         if(instrumentation!=null)instrumentation.getUiAutomation().dropShellPermissionIdentity();
