@@ -202,7 +202,7 @@ public class MainActivity extends Activity {
             JSONArray path=args==null?null:args.optJSONArray("path");StringBuilder relative=new StringBuilder();
             if(path!=null)for(int i=0;i<path.length();i++){if(i>0)relative.append('/');relative.append(path.optString(i));}
             out.put("relativePath",relative.toString());
-            Throwable cause=error;while(cause!=null){if(cause instanceof ErrnoException){out.put("errno",((ErrnoException)cause).errno);out.put("syscall",((ErrnoException)cause).functionName);break;}cause=cause.getCause();}
+            Throwable cause=error;while(cause!=null){if(cause instanceof ErrnoException){out.put("errno",((ErrnoException)cause).errno);String detail=cause.getMessage();int cut=detail==null?-1:detail.indexOf(" failed:");out.put("syscall",cut>0?detail.substring(0,cut):command);out.put("nativeMessage",detail);break;}cause=cause.getCause();}
         }catch(Exception ignored){}
         return out;
     }
