@@ -150,6 +150,11 @@ public class SafSharingInstrumentedTest {
         js("window.__testReload=true;localStorage.setItem('memotalk.peer.poll','2147483647');location.reload();");
         waitJavaScript("window.__testReload===undefined && typeof window.MemoTalkPeer==='object'");
         waitJavaScript("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')");
+        Field lease=MainActivity.class.getDeclaredField("mirrorLease");lease.setAccessible(true);
+        long idleUntil=System.currentTimeMillis()+WAIT_MS;
+        while(lease.get(activity)!=null&&System.currentTimeMillis()<idleUntil)Thread.sleep(POLL_MS);
+        assertNull("Final sharing cycle must release its lease",lease.get(activity));
+        token=((JSONObject)perform.invoke(activity,"hasFolder",new JSONObject())).getString("folderToken");
         JSONArray listing=(JSONArray)command("list",args("memotalk-peer-v1","operations"));
         File export=new File(activity.getFilesDir(),"peer-return");assertTrue(export.exists()||export.mkdirs());
         boolean found=false;
