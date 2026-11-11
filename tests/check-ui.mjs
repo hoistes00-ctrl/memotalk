@@ -12,7 +12,7 @@ const end=shared.lastIndexOf('</script>');
 assert.ok(start>=0 && end>start,'Inline UI script is present');
 new vm.Script(shared.slice(start+8,end),{filename:'shared/index.html (inline)'});
 new vm.Script(desktop,{filename:'windows/main.js'});
-for(const name of ['platform-bridge.js','mirror-engine.js']){
+for(const name of ['platform-bridge.js','mirror-engine.js','peer-sync-engine.js','peer-sync-client.js']){
   const source=fs.readFileSync('shared/'+name,'utf8');
   assert.equal(source,fs.readFileSync('android/app/src/main/assets/'+name,'utf8'),name+' must match Android assets');
   new vm.Script(source,{filename:name});

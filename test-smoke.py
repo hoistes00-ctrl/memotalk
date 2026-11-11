@@ -3,6 +3,8 @@ from pathlib import Path
 root=Path(__file__).parent/'shared'
 html=(root/'index.html').read_text().replace('<script src="platform-bridge.js"></script>', '<script>'+(root/'platform-bridge.js').read_text()+'</script>')
 html=html.replace('<script src="mirror-engine.js"></script>', '<script>'+(root/'mirror-engine.js').read_text()+'</script>')
+for name in ['peer-sync-engine.js','peer-sync-client.js']:
+ html=html.replace('<script src="'+name+'"></script>', '<script>'+(root/name).read_text()+'</script>')
 MOCK=r'''
 (() => {
   const tree = new Map([['',{kind:'directory'}]]);

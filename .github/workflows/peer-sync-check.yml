@@ -1,0 +1,56 @@
+name: Validate Windows-Android shared-folder sync
+
+on:
+  push:
+    branches: ['feature/obsidian-bridge-prototype']
+    paths:
+      - 'shared/**'
+      - 'android/**'
+      - 'tests/**'
+      - '.github/workflows/peer-sync-check.yml'
+  pull_request:
+    paths:
+      - 'shared/peer-sync*'
+      - 'android/**'
+      - 'tests/peer-*'
+      - '.github/workflows/peer-sync-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/check-ui.mjs
+      - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verify SAF writer and build isolated sharing-preview APK
+        working-directory: android
+        run: gradle --no-daemon testSharingPreviewUnitTest assembleSharingPreview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-sharing-preview-Android
+          if-no-files-found: error
+          path: |
+            android/app/build/outputs/apk/sharingPreview/*.apk
+            android/app/build/reports/tests/testSharingPreviewUnitTest/**

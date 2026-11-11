@@ -25,7 +25,12 @@
     else p.resolve(response.result);
   };
   const ask = async (command, args = {}) => {
-    const response = await native.request(command, args);
+    let response;
+    try{response=await native.request(command,args);}catch(error){
+      if(error.code==='ENOENT'||error.message==='NotFoundError')error.name='NotFoundError';
+      if(error.message==='cancelled')error.name='AbortError';
+      throw error;
+    }
     if (response?.ok === false) {
       const error=Object.assign(new Error(response.error.message),response.error);
       if(error.code==='ENOENT')error.name='NotFoundError';
@@ -103,7 +108,7 @@
     async getFileHandle(name, options = {}) {
       assertName(name);
       const path = [...this.parts, name];
-      const result = await ask(options.create && !window.MemoTalkNative ? 'touch' : 'stat', { path, ...this.context });
+      const result = await ask(options.create && !window.MemoTalkNative && !this.context.atomicWrites ? 'touch' : 'stat', { path, ...this.context });
       if ((!result || !result.exists) && options.create) return new NativeFile(path, this.context);
       if (!result || !result.exists) throw notFound();
       if (result.kind !== 'file') throw wrongType();
@@ -127,17 +132,17 @@
     const status = await ask('hasFolder');
     const linkId = localStorage.getItem('memotalk.nativeFolder.linkId');
     if (!status.connected || !linkId) return null;
-    return { handle: new NativeDir([], status.name, {folderToken:status.folderToken}), linkId };
+    return { handle: new NativeDir([], status.name, {folderToken:status.folderToken,atomicWrites:!!status.atomicWrites}), linkId };
   }
   window.MemoTalkFS = {
     restore,
     async beginMirror(root) {
-      if(!window.MemoTalkNative)return;
+      if(!window.MemoTalkNative&&!root.context.atomicWrites)return;
       const lease=await ask('beginMirror',root.context);
       root.context.leaseId=lease.leaseId;
     },
     async endMirror(root) {
-      if(!window.MemoTalkNative||!root.context.leaseId)return;
+      if((!window.MemoTalkNative&&!root.context.atomicWrites)||!root.context.leaseId)return;
       try{await ask('endMirror',root.context);}finally{delete root.context.leaseId;}
     },
     async put(value) { localStorage.setItem('memotalk.nativeFolder.linkId', value.linkId); },
@@ -153,6 +158,6 @@
   window.showDirectoryPicker = async () => {
     const status = await ask('pickFolder');
     if (!status || !status.connected) throw new DOMException('폴더 선택 취소', 'AbortError');
-    return new NativeDir([], status.name, {folderToken:status.folderToken});
+    return new NativeDir([], status.name, {folderToken:status.folderToken,atomicWrites:!!status.atomicWrites});
   };
 })();

@@ -468,6 +468,8 @@ body{position:relative;margin:0}
 
 <script src="platform-bridge.js"></script>
 <script src="mirror-engine.js"></script>
+<script src="peer-sync-engine.js"></script>
+<script src="peer-sync-client.js"></script>
 <script>
 (() => {
 'use strict';
@@ -693,13 +695,14 @@ function closeViewer(){ viewerEl?.remove(); viewerEl = null; }
 
 /* ---------- storage backends ---------- */
 let backend = null, assets = null, downloads = null;
+let peerClient = null;
 
 function makeLocal(){
   const KEY = 'memotalk.v1';
   let data = {rooms:{}, msgs:{}, seeded:false};
   try { const raw = localStorage.getItem(KEY); if (raw) data = Object.assign(data, JSON.parse(raw)); } catch(e) {}
   const save = () => {
-    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    try { const latest=localStorage.getItem(KEY);if(latest)data.peerPresentations=JSON.parse(latest).peerPresentations||{};localStorage.setItem(KEY, JSON.stringify(data)); }
     catch(e){ throw new Error('quota'); }
   };
   let roomCb = null; const msgCb = {};
@@ -715,6 +718,17 @@ function makeLocal(){
   });
   return {
     mode:'local',
+    peerSnapshot(){
+      const token=localStorage.getItem(KEY),latest=token?JSON.parse(token):data;
+      return {token,data:structuredClone(latest)};
+    },
+    peerCommit(token,rooms,msgs,groupId,presentation){
+      if(localStorage.getItem(KEY)!==token)throw Object.assign(new Error('peer_stale'),{code:'peer_stale'});
+      const latest=token?JSON.parse(token):data;
+      const next={...latest,rooms,msgs,peerPresentations:{...(latest.peerPresentations||{}),[groupId]:presentation}};
+      try{localStorage.setItem(KEY,JSON.stringify(next));}catch(_){throw Object.assign(new Error('quota'),{code:'quota'});}
+      data=next;emitRooms();Object.keys(msgCb).forEach(emitMsgs);
+    },
     async moveItems(changes){
       const raw = localStorage.getItem(KEY);
       const latest = raw ? JSON.parse(raw) : data;
@@ -902,7 +916,7 @@ function rawToPortableBackup(raw,ts){
 }
 async function saveExternalVaultCopy(snapshot){
   // Only when a previously verified actual-file mirror is linked; never prompt automatically.
-  if(!fileMirror.handle||!fileMirror.auto)return false;
+  if(peerClient?.active||!fileMirror.handle||!fileMirror.auto)return false;
   if(!await ensureMirrorPermission(fileMirror.handle,false))return false;
   const index=await readMirrorIndex(fileMirror.handle);
   if(!index||index.linkId!==fileMirror.linkId)return false;
@@ -2525,6 +2539,7 @@ async function restoreFileMirrorHandle(){
   }catch(_){fileMirrorStatus('pending','파일 폴더 권한을 다시 허용해 주세요.');}
 }
 function scheduleFileMirror(){
+  if(peerClient?.active){peerClient.schedule();return;}
   if(!fileMirror.handle)return;
   fileMirror.pending=true;
   try{localStorage.setItem('memotalk.fileMirror.pending','1');}catch(_){}
@@ -2632,7 +2647,9 @@ async function disconnectFileMirror(){
   fileMirrorStatus('off','연결 해제됨 · 기존 파일은 기기에 남아 있어요.');
 }
 async function showFileFolderMenu(){
+  if(peerClient?.active)return peerClient.menu();
   const options=[
+    {icon:'folder',label:'Windows ↔ Android 양방향 공유',run:()=>peerClient.menu()},
     {icon:'folder',label:fileMirror.handle?'다른 저장 폴더 선택':'실제 저장 폴더 연결',run:linkFileMirror},
     {icon:'edit',label:'자동 저장 간격 조절',run:showMirrorDelay},
     {icon:'load',label:'마지막 저장 오류 진단',run:showMirrorDiagnostics},
@@ -2695,6 +2712,7 @@ async function reviewIncompleteMirror(source){
   if(proceed)await linkFileMirror();
 }
 async function runFileMirror(interactive=false){
+  if(peerClient?.active){if(interactive)await peerClient.run();return;}
   clearTimeout(fileMirror.timer);
   const root=fileMirror.handle;
   if(!root){if(interactive)await linkFileMirror();return;}
@@ -2727,6 +2745,17 @@ async function runFileMirror(interactive=false){
     if(fileMirror.dirty){fileMirror.dirty=false;scheduleFileMirror();}
   }
 }
+
+peerClient=window.MemoTalkPeerClient.create({
+  backend:()=>backend,engine:window.MemoTalkPeer,
+  read:readMirrorFile,write:writeMirrorFile,folder:getMirrorFolder,permission:ensureMirrorPermission,
+  imageData:imageDataUrl,archiveRoomId,status:fileMirrorStatus,ask,menu,toast,openScrim,closeSheet,esc,
+  editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
+  ready:()=>S.roomsLoaded,
+  applied:()=>{S.gcache=null;scheduleVaultAutoBackup();},
+  remember:async(root,id)=>{clearTimeout(fileMirror.timer);fileMirror.handle=root;fileMirror.linkId=id;fileMirror.pending=false;await mirrorHandleStore('put',{handle:root,linkId:id});},
+  disconnect:disconnectFileMirror
+});
 
 /* ---------- portable Markdown transfer ---------- */
 const utf8 = new TextEncoder(), utf8Read = new TextDecoder('utf-8', {fatal:true});
@@ -3534,6 +3563,7 @@ async function boot(){
   if (!backend) backend = makeLocal();
   enableFileMirrorChangeTracking();
   await restoreFileMirrorHandle();
+  await peerClient.restore(fileMirror.handle);
   let first = true;
   backend.watchRooms(list => {
     S.folders = list.filter(r=>r.kind==='folder'); S.archives = list.filter(r=>r.kind==='archive'); S.rooms = list.filter(r=>r.kind!=='folder' && r.kind!=='archive'); S.roomsLoaded = true;

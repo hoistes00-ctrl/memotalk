@@ -14,8 +14,10 @@ android {
         applicationId 'kr.memotalk.app'
         minSdk 26
         targetSdk 35
-        versionCode 18
-        versionName '17.0.2'
+        versionCode 19
+        versionName '17.1.0-sharing.1'
+        manifestPlaceholders = [applicationLabel:'메모톡']
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     signingConfigs {
         release {
@@ -32,6 +34,13 @@ android {
             // Debug builds use a separate app ID: install alongside existing MemoTalk without overwriting its notes.
             applicationIdSuffix '.test'
         }
+        sharingPreview {
+            initWith debug
+            applicationIdSuffix '.sharingpreview'
+            manifestPlaceholders = [applicationLabel:'메모톡 공유 시험판']
+            matchingFallbacks = ['debug']
+            signingConfig canSignRelease ? signingConfigs.release : signingConfigs.debug
+        }
         release {
             minifyEnabled false
             if (canSignRelease) signingConfig signingConfigs.release
@@ -41,4 +50,10 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }
