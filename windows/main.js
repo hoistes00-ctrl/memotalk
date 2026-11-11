@@ -5,6 +5,9 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { verifiedWrite } = require('./verified-write');
 const crypto = require('node:crypto');
+// Explicit CLI profile override keeps packaged integration tests separate from normal notes.
+const requestedProfile=app.commandLine?.getSwitchValue('user-data-dir');
+if(requestedProfile){app.setPath('userData',path.resolve(requestedProfile));app.setPath('sessionData',path.resolve(requestedProfile));}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'memotalk', privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } }

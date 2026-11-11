@@ -10,6 +10,8 @@
   const TIMER_MIN=0,TIMER_MAX=2147483647;
   // Number input default increment, in milliseconds; higher makes adjustments coarser.
   const TIMER_STEP=1;
+  // Custom display defaults (no library defaults): higher shows longer memo/actor previews.
+  const HISTORY_PREVIEW_CHARS=100,ACTOR_PREVIEW_CHARS=8,ROOM_PREVIEW_CHARS=120;
   const DB='memotalk-peer-sync-v1',CONFIG='memotalk.peer.config',ACTOR='memotalk.peer.actor';
   const encoder=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
   const clone=value=>structuredClone(value);
@@ -142,12 +144,12 @@
           }
         }
         const list=(msgs[room.id]||[]).sort((a,b)=>a.ts-b.ts),last=list.at(-1);
-        room.last=last?String(last.text||'').slice(0,120):'';
+        room.last=last?String(last.text||'').slice(0,ROOM_PREVIEW_CHARS):'';
         room.updatedAt=last?.edited||last?.ts||room.createdAt||0;
       }
       // Recheck editing after asynchronous attachment reads as well as the storage token.
       if(options.editing())throw error('peer_edit_in_progress');
-      getBackend().peerCommit(token,rooms,msgs,client.groupId,presentation);
+      await getBackend().peerCommit(token,rooms,msgs,client.groupId,presentation);
       options.applied?.();
     }
     function schedule(delay=settings.debounce){
@@ -174,7 +176,7 @@
         else if(window.MemoTalkFS)await task();
         else throw error('peer_lock_unavailable');
       }catch(e){
-        client.lastError={code:e.code||e.message,operation:e.operation||'peer-cycle',relativePath:e.relativePath||'',at:new Date().toISOString()};
+        client.lastError={code:e.code||e.message,operation:e.operation||'peer-cycle',relativePath:e.relativePath||'',errno:e.errno,syscall:e.syscall,nativeMessage:e.nativeMessage,message:e.message,at:new Date().toISOString()};
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
         const pending=['peer_edit_in_progress','peer_attachment_pending','peer_stale','peer_busy','EBUSY'].includes(client.lastError.code);
         options.status(pending?'pending':'error',`공유 ${pending?'대기':'중단'} · ${client.lastError.code} · ${client.lastError.relativePath}`);
@@ -195,7 +197,7 @@
       try{
         getBackend();
         if(createGroup&&window.AndroidMemoTalk)throw error('peer_create_on_windows_first');
-        if(!await options.ask({title:createGroup?'새 공유 그룹 만들기':'기존 공유 그룹 참여',body:'현재 앱 메모와 다른 기기 메모를 합쳐 표시합니다. 충돌 원문은 모두 보존하며, 앱이 열린 동안 자동 반영합니다. 두 기기에서 Obsidian Sync의 Sync all other types를 켜야 합니다. Windows에서 먼저 그룹을 만든 뒤, 휴대폰에서 내려받은 같은 폴더로 참여하세요. 기존 파일은 수정·삭제하지 않습니다.',ok:'폴더 선택'}))return;
+        if(!await options.ask({title:createGroup?'새 공유 그룹 만들기':'기존 공유 그룹 참여',body:'처음에는 양쪽 메모를 합쳐 표시하고, 이후 추가·수정·삭제를 두 기기에 반영합니다. 충돌 원문과 삭제 전 이력은 보존하며, 앱이 열린 동안 자동 반영합니다. 두 기기에서 Obsidian Sync의 Sync all other types를 켜야 합니다. Windows에서 먼저 그룹을 만든 뒤, 휴대폰에서 내려받은 같은 폴더로 참여하세요. 기존 파일은 수정·삭제하지 않습니다.',ok:'폴더 선택'}))return;
         const root=await window.showDirectoryPicker({mode:'readwrite'});
         if(!await options.permission(root,true))throw error('peer_permission');
         client.root=root;
@@ -226,7 +228,7 @@
     }
     function showSettings(){
       const fields=[['poll','공유 폴더 확인 간격'],['debounce','수정 후 공유 대기 시간']];
-      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label])=>`<p><label>${label} (ms) <input data-peer="${key}" type="number" min="${TIMER_MIN}" max="${TIMER_MAX}" step="${TIMER_STEP}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ms</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>앱이 열린 동안 적용됩니다. 실제 기기 간 전달 시간에는 Obsidian Sync 지연이 더해집니다.</p>');
+      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label])=>`<p><label>${label} (ms) <input data-peer="${key}" type="number" min="${TIMER_MIN}" max="${TIMER_MAX}" step="${TIMER_STEP}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ms</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>메모톡이 열린 동안 적용됩니다. 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
       const set=(key,value)=>{if(!Number.isFinite(value)||value<TIMER_MIN||value>TIMER_MAX)return;
         settings[key]=value;localStorage.setItem('memotalk.peer.'+key,String(value));sheet.querySelector('[data-value="'+key+'"]').textContent=value+' ms';schedule();};
       sheet.querySelectorAll('[data-peer]').forEach(input=>input.oninput=()=>{if(input.value!=='')set(input.dataset.peer,Number(input.value));});
@@ -237,18 +239,23 @@
       const state=await load();if(!state)return options.toast('아직 공유 이력이 없습니다.');
       const view=P.project(state),operations=Object.values(state.operations).sort((a,b)=>a.id.localeCompare(b.id));
       const esc=options.esc;
-      const sheet=options.openScrim('<h2>공유 변경 이력 · 두 버전 보존</h2><p>충돌 '+view.conflicts.length+'건. 각 버전은 삭제되지 않습니다. 선택한 내용을 복원하면 새 변경 이력이 만들어집니다.</p>'+operations.map(op=>`<details><summary>${esc(op.entity.kind==='room'?(op.value?.name||'삭제된 메모방'):(op.value?.text||'(사진 또는 삭제)').slice(0,100))} · ${esc(op.actor.slice(0,8))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(op.value,null,2))}</pre><button data-restore="${op.id}">이 버전으로 복원${op.value===null?' (삭제)':''}</button></details>`).join(''));
+      const sheet=options.openScrim('<h2>공유 변경 이력 · 두 버전 보존</h2><p>충돌 '+view.conflicts.length+'건. 각 버전은 삭제되지 않습니다. 선택한 내용을 복원하면 새 변경 이력이 만들어집니다.</p>'+operations.map(op=>`<details><summary>${esc(op.entity.kind==='room'?(op.value?.name||'삭제된 메모방'):(op.value?.text||'(사진 또는 삭제)').slice(0,HISTORY_PREVIEW_CHARS))} · ${esc(op.actor===state.actor?'이 기기':'다른 기기 '+op.actor.slice(0,ACTOR_PREVIEW_CHARS))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(op.value===null?'삭제한 버전':op.entity.kind==='room'?'이름: '+op.value.name:String(op.value.text||'(텍스트 없음)'))}</pre>${op.value?.comments?.length?'<p>댓글 '+op.value.comments.length+'개</p>':''}${op.value?.images?.length?'<p>사진 '+op.value.images.length+'장</p>':''}<button data-restore="${op.id}">이 버전으로 복원${op.value===null?' (삭제)':''}</button></details>`).join(''));
       sheet.querySelectorAll('[data-restore]').forEach(button=>button.onclick=async()=>{
         const op=state.operations[button.dataset.restore];options.closeSheet();
         if(!await options.ask({title:'이 버전으로 복원할까요?',body:'현재 버전과 기존 이력은 모두 남습니다. 선택한 내용을 새 변경으로 두 기기에 전달합니다.',ok:'복원'}))return;
         try{if(navigator.locks?.request)await navigator.locks.request('memotalk-peer-'+client.groupId,()=>client.replica.resolve(P.entityKey(op.entity),op.id));else await client.replica.resolve(P.entityKey(op.entity),op.id);schedule(TIMER_MIN);}catch(e){options.toast('복원 대기 · '+(e.code||e.message),true);}
       });
     }
+    function diagnostics(){
+      let record=client.lastError;try{record ||= JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')||'null');}catch(_){}
+      options.openScrim('<h2>공유 오류 진단</h2><p>경로에 개인 정보가 포함될 수 있습니다.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 공유 오류 없음')+'</pre>');
+    }
     function menu(){
       const items=client.active?[
         {icon:'save',label:'지금 양방향 공유 확인',run:()=>run()},
         {icon:'edit',label:'공유 확인·반영 간격 조절',run:showSettings},
         {icon:'load',label:'공유 충돌·변경 이력 보기',run:showHistory},
+        {icon:'load',label:'공유 오류 진단',run:diagnostics},
         {icon:'close',label:'기기 간 공유 연결 해제 (파일 유지)',run:disconnect}
       ]:[
         {icon:'folder',label:'Windows에서 새 공유 그룹 만들기',run:()=>connect(true)},

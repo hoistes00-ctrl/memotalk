@@ -141,4 +141,24 @@ test('cross-entity parent references and foreign groups are rejected',async()=>{
   const state=Peer.newState('group1','a');state.operations={[p.id]:p,[c.id]:c};
   assert.throws(()=>Peer.project(state),{code:'peer_parent_entity'});
   await assert.rejects(Peer.validate(p,'other-group'),{code:'peer_operation'});
+  for(const id of ['__proto__','constructor','prototype'])assert.throws(()=>Peer.entityKey({kind:'room',id}),{code:'peer_entity'});
+});
+
+test('ten thousand causally ordered edits arriving backwards project without recursion',()=>{
+  const state=Peer.newState('group1','a'),depth=10000;
+  const id=i=>i.toString(16).padStart(64,'0');
+  for(let i=depth-1;i>=0;i--)state.operations[id(i)]={id:id(i),entity:{kind:'msg',rid:'r',id:'m'},parents:i?[id(i-1)]:[],value:{id:'m',ts:i,text:'revision '+i}};
+  const view=Peer.project(state);assert.equal(view.pending.length,0);assert.equal(view.conflicts.length,0);
+  assert.equal(Object.values(view.records)[0].value.text,'revision 9999');
+});
+
+test('interruption midway through publishing replays identical revisions without duplicates',async()=>{
+  const a=fixture('a',new Map(),[room,memo('m','durable local edit')]);
+  const put=a.transport.put;let writes=0;
+  a.transport.put=async(...args)=>{if(++writes===2)throw Object.assign(Error('disk full'),{code:'ENOSPC'});return put(...args);};
+  await assert.rejects(a.replica.tick(),{code:'ENOSPC'});
+  const ids=Object.keys(a.state.operations).sort();assert.equal(a.state.outbox.length,2);
+  a.transport.put=put;await a.replica.tick();
+  assert.deepEqual(Object.keys(a.state.operations).sort(),ids);assert.equal(a.state.outbox.length,0);
+  assert.equal(text(a,'m'),'durable local edit');
 });

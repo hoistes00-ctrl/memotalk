@@ -12,6 +12,7 @@
   const GROUP_FILE='memotalk-peer-group.json',DIRECTORY='memotalk-peer-v1';
   const HASH=/^[a-f0-9]{64}$/;
   const ID=/^[a-zA-Z0-9_-]{1,256}$/;
+  const validId=value=>typeof value==='string'&&ID.test(value)&&!['__proto__','constructor','prototype'].includes(value);
   const encoder=new TextEncoder();
   const clone=value=>JSON.parse(JSON.stringify(value));
   function canonical(value){
@@ -30,7 +31,7 @@
     return DIRECTORY+'/assets/'+sha256+'.'+extension;
   }
   function entityKey(entity){
-    if(!entity||!['room','msg'].includes(entity.kind)||!ID.test(entity.id)||entity.kind==='msg'&&!ID.test(entity.rid))throw fail('peer_entity');
+    if(!entity||!['room','msg'].includes(entity.kind)||!validId(entity.id)||entity.kind==='msg'&&!validId(entity.rid))throw fail('peer_entity');
     return canonical(entity.kind==='room'?['room',entity.id]:['msg',entity.rid,entity.id]);
   }
   function normalizedRecord(record){
@@ -89,18 +90,25 @@
   function project(state){
     const operations=state.operations,ready=new Set(),pending=new Set();
     if(Object.keys(operations).length>MAX_OPERATIONS)throw fail('peer_history_limit');
-    // Iterative dependency resolution avoids recursion on long offline edit histories.
-    const remaining=new Set(Object.keys(operations));
-    let progress=true;
-    while(progress&&remaining.size){
-      progress=false;
-      for(const id of remaining){
-        const op=operations[id],key=entityKey(op.entity);
-        if(op.parents.some(p=>operations[p]&&entityKey(operations[p].entity)!==key))throw fail('peer_parent_entity',id);
-        if(op.parents.every(p=>ready.has(p))){ready.add(id);remaining.delete(id);progress=true;}
+    // Linear topological traversal: arrival order must not turn a long edit history
+    // into repeated scans or recursive stack growth.
+    const dependencies=new Map(),children=new Map(),queue=[];
+    for(const [id,op]of Object.entries(operations)){
+      const key=entityKey(op.entity);dependencies.set(id,op.parents.length);
+      for(const parent of op.parents){
+        if(operations[parent]&&entityKey(operations[parent].entity)!==key)throw fail('peer_parent_entity',id);
+        if(!children.has(parent))children.set(parent,[]);
+        children.get(parent).push(id);
+      }
+      if(!op.parents.length)queue.push(id);
+    }
+    for(let position=0;position<queue.length;position++){
+      const id=queue[position];ready.add(id);
+      for(const child of children.get(id)||[]){
+        const left=dependencies.get(child)-1;dependencies.set(child,left);if(left===0)queue.push(child);
       }
     }
-    for(const id of remaining)pending.add(id);
+    for(const id of Object.keys(operations))if(!ready.has(id))pending.add(id);
     const removed=new Set();
     for(const id of ready)for(const parent of operations[id].parents)removed.add(parent);
     const heads={};
@@ -160,11 +168,13 @@
         for(const [assetPath,data]of Object.entries(state.assets)){
           await this.transport.put(assetPath,data);delete state.assets[assetPath];
         }
-        for(const id of [...state.outbox]){
+        for(const id of state.outbox){
           await this.transport.put(DIRECTORY+'/operations/'+id+'.json',encoder.encode(canonical(state.operations[id])));
-          state.outbox=state.outbox.filter(value=>value!==id);
-          await this.save(state);
         }
+        state.outbox=[];
+        // A crash can replay already-published content-addressed files safely. One
+        // durable batch receipt avoids rewriting the entire ledger for each memo.
+        await this.save(state);
         const blocked=[];
         for(const name of await this.transport.list(DIRECTORY+'/operations')){
           if(!name.endsWith('.json'))continue;

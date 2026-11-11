@@ -8,7 +8,7 @@ const archive = path.join(packaged, 'app.asar');
 for (const name of ['main.js', 'preload.js', 'verified-write.js']) {
   assert.deepEqual(asar.extractFile(archive, name), fs.readFileSync(path.join('windows', name)), name + ' must match tested source');
 }
-for (const name of ['index.html', 'platform-bridge.js', 'mirror-engine.js']) {
+for (const name of ['index.html', 'platform-bridge.js', 'mirror-engine.js', 'peer-sync-engine.js', 'peer-sync-client.js']) {
   assert.deepEqual(fs.readFileSync(path.join(packaged, 'web', name)), fs.readFileSync(path.join('shared', name)), name + ' must match tested UI');
 }
 const builtPackage = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));

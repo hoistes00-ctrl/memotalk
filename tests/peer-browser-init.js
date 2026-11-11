@@ -1,5 +1,6 @@
 /* Test-only bridge bootstrap, loaded into separate Windows/Android browser profiles. */
 (() => {
+  if(!/^https?:$/.test(location.protocol))return;
   const device=location.pathname.includes('/android/')?'android':'windows';
   if(!localStorage.getItem('peer-test-seeded')){
     localStorage.clear();

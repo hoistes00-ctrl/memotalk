@@ -705,6 +705,7 @@ function makeLocal(){
     try { const latest=localStorage.getItem(KEY);if(latest)data.peerPresentations=JSON.parse(latest).peerPresentations||{};localStorage.setItem(KEY, JSON.stringify(data)); }
     catch(e){ throw new Error('quota'); }
   };
+  const refresh=()=>{const raw=localStorage.getItem(KEY);data=raw?JSON.parse(raw):{rooms:{},msgs:{},seeded:false};};
   let roomCb = null; const msgCb = {};
   const emitRooms = () => roomCb && roomCb(Object.values(data.rooms).map(r => ({...r})));
   const emitMsgs = rid => msgCb[rid] && msgCb[rid]((data.msgs[rid] || []).map(m => ({...m})));
@@ -716,7 +717,7 @@ function makeLocal(){
       cancelDrag(); data = next; emitRooms(); Object.keys(msgCb).forEach(emitMsgs);
     } catch (_) {}
   });
-  return {
+  const api = {
     mode:'local',
     peerSnapshot(){
       const token=localStorage.getItem(KEY),latest=token?JSON.parse(token):data;
@@ -742,8 +743,8 @@ function makeLocal(){
     },
     watchRooms(cb){ roomCb = cb; setTimeout(emitRooms); return () => { roomCb = null; }; },
     watchMsgs(rid, cb){ msgCb[rid] = cb; setTimeout(() => emitMsgs(rid)); return () => { delete msgCb[rid]; }; },
-    async loadMsgs(rid){ return (data.msgs[rid] || []).map(m => ({...m})); },
-    async loadAllMsgs(rid){ return (data.msgs[rid] || []).map(m => ({...m})); },
+    async loadMsgs(rid){ refresh();return (data.msgs[rid] || []).map(m => ({...m})); },
+    async loadAllMsgs(rid){ refresh();return (data.msgs[rid] || []).map(m => ({...m})); },
     async isSeeded(){ return !!data.seeded; },
     async markSeeded(){ data.seeded = true; try { save(); } catch(e) {} },
     async setRoom(room){ const old = data.rooms[room.id]; data.rooms[room.id] = {...room}; try { save(); } catch(e){ if (old) data.rooms[room.id] = old; else delete data.rooms[room.id]; throw e; } emitRooms(); },
@@ -776,6 +777,15 @@ function makeLocal(){
       data=next;emitRooms();Object.keys(msgCb).forEach(emitMsgs);
     },
   };
+  // Serialize app edits and peer commits across Electron windows sharing localStorage.
+  for(const name of ['moveItems','markSeeded','setRoom','updateRoom','deleteRoom','setMsg','updateMsg','deleteMsg','applyTransfer','peerCommit']){
+    const original=api[name];
+    api[name]=(...args)=>{
+      const run=()=>{refresh();return original.apply(api,args);};
+      return globalThis.navigator?.locks?.request?globalThis.navigator.locks.request('memotalk-local-data',run):Promise.resolve().then(run);
+    };
+  }
+  return api;
 }
 
 function makeDb(db, uid){
