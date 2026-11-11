@@ -33,6 +33,7 @@ jobs:
       - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs
 
   android:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +42,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -54,3 +58,4 @@ jobs:
           path: |
             android/app/build/outputs/apk/sharingPreview/*.apk
             android/app/build/reports/tests/testSharingPreviewUnitTest/**
+
