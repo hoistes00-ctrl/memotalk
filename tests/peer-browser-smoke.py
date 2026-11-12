@@ -57,7 +57,8 @@ def main():
                 localStorage.setItem('memotalk.fileMirror.pending','1');
             }""")
             phone.reload()
-            phone.wait_for_function('S.roomsLoaded && !!fileMirror.handle')
+            phone.locator('.room[data-id=room1]').wait_for()
+            phone.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('연결 복원됨')")
             sharing(phone)
             phone.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
             phone.get_by_role('button', name='다른 기기의 공유 그룹 참여', exact=True).click()
@@ -65,12 +66,19 @@ def main():
             phone.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('Windows에서 먼저')")
             assert phone.evaluate("localStorage.getItem('memotalk.fileMirror.auto')") == 'false'
             assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')).relativePath") == 'memotalk-peer-group.json'
-            phone.evaluate("async()=>{await backend.updateMsg('room1','phonememo',{text:'휴대폰 원문'});await runFileMirror(true);}")
+            backup = {'app': 'memotalk', 'version': 2, 'rooms': [
+                {'name': '백업 복원 회귀 시험', 'msgs': [{'ts': 1, 'text': '백업 원문 보존'}]}]}
+            phone.locator('#file-backup').set_input_files({
+                'name': 'synthetic-backup.json', 'mimeType': 'application/json',
+                'buffer': json.dumps(backup, ensure_ascii=False).encode('utf-8')})
+            phone.get_by_role('button', name='불러오기', exact=True).click()
+            phone.wait_for_function("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).msgs).flat().some(m=>m.text==='백업 원문 보존')")
             phone.reload()
-            phone.wait_for_function('S.roomsLoaded')
+            phone.locator('.room[data-id=room1]').wait_for()
             assert journal.read_bytes() == original_journal
             assert not (temporary / 'android' / '.memotalk-file-index.json').exists()
             assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.v1')).msgs.room1[0].text") == '휴대폰 원문'
+            assert phone.evaluate("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).msgs).flat().some(m=>m.text==='백업 원문 보존')")
 
             sharing(desktop)
             desktop.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
