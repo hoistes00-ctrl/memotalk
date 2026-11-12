@@ -129,8 +129,8 @@ public class SafSharingInstrumentedTest {
         try{command("stat",args());fail("old token accepted");}catch(VerifiedDocumentWriter.Failure expected){assertEquals("ESTALE",expected.code);}
     }
     @Test public void androidCreatesGroupThroughActualPickerAndRestoresIt()throws Exception{
-        js("localStorage.clear();localStorage.setItem('memotalk.v1',JSON.stringify({seeded:true,rooms:{},msgs:{}}));localStorage.setItem('memotalk.peer.poll','2147483647');location.reload();");
-        waitJavaScript("typeof window.MemoTalkPeer==='object' && document.querySelector('#btn-file-folder')!==null");
+        js("localStorage.clear();localStorage.setItem('memotalk.v1',JSON.stringify({seeded:true,rooms:{},msgs:{}}));localStorage.setItem('memotalk.peer.poll','2147483647');window.__creationReload=true;location.reload();");
+        waitJavaScript("window.__creationReload===undefined && typeof window.MemoTalkPeer==='object' && document.querySelector('#btn-file-folder')!==null");
         js("document.querySelector('#btn-file-folder').click()");
         clickButton("Windows ↔ Android 양방향 공유");
         clickButton("이 기기에서 새 공유 그룹 만들기");
@@ -141,13 +141,18 @@ public class SafSharingInstrumentedTest {
         UiObject2 allow=device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))),PICKER_CONFIRM_MS);
         if(allow!=null)allow.click();
         waitJavaScript("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')");
+        Field lease=MainActivity.class.getDeclaredField("mirrorLease");lease.setAccessible(true);
+        long idleUntil=System.currentTimeMillis()+WAIT_MS;
+        while(lease.get(activity)!=null&&System.currentTimeMillis()<idleUntil)Thread.sleep(POLL_MS);
+        assertNull("Creation must release its native writer lease",lease.get(activity));
         String identity=js("JSON.parse(localStorage.getItem('memotalk.peer.config')).groupId");
         token=((JSONObject)perform.invoke(activity,"hasFolder",new JSONObject())).getString("folderToken");
         JSONObject data=(JSONObject)command("read",args("memotalk-peer-group.json"));
         JSONObject group=new JSONObject(new String(Base64.decode(data.getString("base64"),Base64.DEFAULT),StandardCharsets.UTF_8));
         assertEquals("memotalk-peer-group",group.getString("format"));
         assertEquals(JSONObject.quote(group.getString("id")),identity);
-        js("location.reload()");
+        js("window.__creationReload=true;location.reload()");
+        waitJavaScript("window.__creationReload===undefined && typeof window.MemoTalkPeer==='object'");
         waitJavaScript("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')");
         assertEquals(identity,js("JSON.parse(localStorage.getItem('memotalk.peer.config')).groupId"));
     }
