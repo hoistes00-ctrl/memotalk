@@ -42,10 +42,10 @@ for item in sorted(output.iterdir()):
                    'sha256': digest_file(item)})
 run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
 info = {'version': version, 'sourceCommit': source, 'branch': os.environ['GITHUB_REF_NAME'],
-        'validationRun': run_url, 'androidPackage': 'kr.memotalk.app.sharingpreview2',
+        'validationRun': run_url, 'androidPackage': 'kr.memotalk.app.sharingpreview3',
         'androidSigning': signing, 'windowsUnsigned': True, 'assets': assets,
         'verified': ['Node protocol/storage/connection regression suite on Windows/Linux', 'two-profile browser UI on Windows/Linux',
-                     '6 Android JVM tests', '4 actual Android API35 SAF/WebView tests',
+                     '6 Android JVM tests', '5 actual Android API35 SAF/WebView/create/restart tests',
                      'actual packaged Windows EXE receives Android changes and publishes reply',
                      'packaged shared source bytes match checkout'],
         'notVerified': ['user phone vendor/Android version', 'actual Obsidian Sync server transport']}
@@ -57,9 +57,9 @@ for item in sorted(output.iterdir()):
 notes = f'''Windows·Android 메모톡 앱 간 양방향 폴더 공유 시험판입니다.
 
 - 두 메모톡 앱의 추가·수정·삭제, 사진·댓글을 공유하며 동시 수정 두 버전은 모두 보존합니다.
-- Windows에서 전용 새 폴더에 그룹을 만든 뒤 Android에서 같은 vault의 같은 하위 폴더로 참여하세요.
-- Android에서 먼저 빈 폴더에 참여하면 이전 자동 저장을 중지하고 그룹 생성 안내를 표시합니다. 기존 저널 교체 오류를 방지합니다.
-- 이번 APK는 메모톡 공유 시험판 2(kr.memotalk.app.sharingpreview2)이며 이전 시험판을 삭제하지 않고 설치할 수 있습니다. 기존 앱에서 JSON 백업을 내보내 새 앱으로 가져오세요.
+- 휴대폰 또는 Windows 중 한 기기에서 새 그룹을 만들고, 다른 기기는 같은 vault의 같은 하위 폴더에 참여하세요.
+- 휴대폰에서도 이 기기에서 새 공유 그룹 만들기로 먼저 시작할 수 있습니다. 그룹 생성은 한 기기에서만 하고, 다른 기기는 참여하세요.
+- 이번 APK는 메모톡 공유 시험판 3(kr.memotalk.app.sharingpreview3)이며 이전 시험판을 삭제하지 않고 설치할 수 있습니다. 기존 앱에서 JSON 백업을 내보내 새 앱으로 가져오세요.
 - 두 기기의 Obsidian에서 **Sync all other types**를 켜고 Obsidian을 실행해 두세요. 앱 종료/절전 중 항상 실시간 전송을 보장하지 않습니다.
 - 기존 앱에서 먼저 JSON 백업을 보관하세요. Android는 별도 앱이며 기존 메모가 필요하면 백업을 가져오세요. Windows 포터블도 기존 앱과 내부 저장소를 공유할 수 있으므로 기존 앱을 종료하세요.
 - Windows EXE는 서명되지 않았습니다. Android 서명: `{signing}`. `debug-ephemeral`이면 다음 시험 APK의 덮어 설치가 거부될 수 있으므로 삭제 전 반드시 백업하세요.

@@ -196,8 +196,7 @@
       if(client.busy)return options.toast('공유 처리 중입니다. 완료 후 다시 선택하세요.');
       try{
         getBackend();
-        if(createGroup&&window.AndroidMemoTalk)throw error('peer_create_on_windows_first');
-        if(!await options.ask({title:createGroup?'새 공유 그룹 만들기':'기존 공유 그룹 참여',body:'처음에는 양쪽 메모를 합쳐 표시하고, 이후 추가·수정·삭제를 두 기기에 반영합니다. 충돌 원문과 삭제 전 이력은 보존하며, 앱이 열린 동안 자동 반영합니다. 두 기기에서 Obsidian Sync의 Sync all other types를 켜야 합니다. Windows에서 먼저 그룹을 만든 뒤, 휴대폰에서 내려받은 같은 폴더로 참여하세요. 기존 파일은 수정·삭제하지 않습니다.',ok:'폴더 선택'}))return;
+        if(!await options.ask({title:createGroup?'새 공유 그룹 만들기':'기존 공유 그룹 참여',body:'처음에는 양쪽 메모를 합쳐 표시하고, 이후 추가·수정·삭제를 두 기기에 반영합니다. 충돌 원문과 삭제 전 이력은 보존하며, 앱이 열린 동안 자동 반영합니다. 두 기기에서 Obsidian Sync의 Sync all other types를 켜야 합니다. 휴대폰이나 컴퓨터 중 한 기기에서만 새 그룹을 만드세요. 다른 기기는 Obsidian Sync로 내려온 같은 폴더에 참여합니다. 이미 다른 기기에서 시작했다면 새 그룹을 만들지 말고 참여하세요. 기존 파일은 수정·삭제하지 않습니다.',ok:'폴더 선택'}))return;
         // The native picker changes the selected root even when group validation later fails.
         // Stop legacy writers before opening it; never resume them into an unverified root.
         await options.pauseLegacy?.();
@@ -217,7 +216,7 @@
         client.lastError={code:e.code||e.message,operation:e.operation||'peer-connect',relativePath:e.relativePath||'',message:e.message,at:new Date().toISOString()};
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
         const message=e.code==='peer_group_not_downloaded'
-          ? '공유 그룹 파일이 없어요. Windows에서 먼저 새 공유 그룹을 만들고, Obsidian Sync로 내려온 같은 폴더에 참여하세요. 내부 메모와 기존 파일은 유지됩니다.'
+          ? '공유 그룹 파일이 없어요. 처음 시작한다면 이 기기에서 새 공유 그룹 만들기를 선택하세요. 다른 기기에서 이미 만들었다면 Obsidian Sync로 같은 폴더가 내려올 때까지 기다리세요. 내부 메모와 기존 파일은 유지됩니다.'
           : '공유 연결 실패 · '+(e.code||e.message);
         options.status('error',message);options.toast(message,true);
       }
@@ -269,7 +268,7 @@
         {icon:'load',label:'공유 오류 진단',run:diagnostics},
         {icon:'close',label:'기기 간 공유 연결 해제 (파일 유지)',run:disconnect}
       ]:[
-        {icon:'folder',label:'Windows에서 새 공유 그룹 만들기',run:()=>connect(true)},
+        {icon:'folder',label:'이 기기에서 새 공유 그룹 만들기',run:()=>connect(true)},
         {icon:'folder',label:'다른 기기의 공유 그룹 참여',run:()=>connect(false)},
         {icon:'edit',label:'공유 확인·반영 간격 조절',run:showSettings}
       ];

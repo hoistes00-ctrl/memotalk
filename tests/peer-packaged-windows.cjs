@@ -51,7 +51,7 @@ async function main(){
   await fs.writeFile(path.join(vault,P.GROUP_FILE),JSON.stringify(group));
   for(const name of await fs.readdir(input))if(/^[a-f0-9]{64}\.json$/.test(name))await fs.copyFile(path.join(input,name),path.join(operations,name));
   await fs.writeFile(path.join(profile,'native-folder.json'),JSON.stringify({folder:vault}));
-  const port=await debuggerPort(),executable=path.resolve('windows/dist/win-unpacked/MemoTalk.exe');
+  const port=await debuggerPort(),executable=path.resolve(process.argv[3]||'windows/dist/win-unpacked/MemoTalk.exe');
   await fs.access(executable);
   const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(executable,['--user-data-dir='+profile,'--remote-debugging-port='+port,'--disable-gpu'],{windowsHide:true,env});

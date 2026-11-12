@@ -40,6 +40,10 @@ jobs:
       - run: node tests/check-ui.mjs
       - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs
       - run: python tests/peer-browser-smoke.py
+      - name: Repeat UI roundtrip with Android creating the group first
+        env:
+          MEMOTALK_FIRST_DEVICE: android
+        run: python tests/peer-browser-smoke.py
 
   android:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
@@ -127,7 +131,7 @@ jobs:
         run: |
           python3 tests/check-android-package.py android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview2'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview3'"
       - uses: actions/upload-artifact@v4
         with:
           name: MemoTalk-sharing-preview-Android-tested
@@ -173,7 +177,17 @@ jobs:
           npm run dist:portable -- --publish never
           if ($LASTEXITCODE -ne 0) { throw 'Portable build failed' }
       - run: node tests/check-windows-package.cjs
-      - run: node tests/peer-packaged-windows.cjs android-return
+      - name: Install NSIS preview and verify the actually installed app
+        shell: pwsh
+        run: |
+          $installTarget = Join-Path $env:RUNNER_TEMP 'MemoTalkSharingInstall'
+          if (-not ([IO.Path]::GetFullPath($installTarget)).StartsWith(([IO.Path]::GetFullPath($env:RUNNER_TEMP) + [IO.Path]::DirectorySeparatorChar))) { throw 'Unsafe test install location' }
+          $installer = @(Get-ChildItem windows/dist -Filter 'MemoTalk-Setup-*.exe')
+          if ($installer.Count -ne 1) { throw 'Expected one tested installer' }
+          $install = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$installTarget") -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) { throw 'Installer failed' }
+          node tests/peer-packaged-windows.cjs android-return (Join-Path $installTarget 'MemoTalk.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Windows roundtrip failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: MemoTalk-sharing-preview-Windows

@@ -2668,7 +2668,7 @@ async function showFileFolderMenu(){
       {icon:'save',label:'Markdown ZIP 다운로드 (갤럭시 호환)',run:()=>exportTransfer()},
     ];
     if(fileMirror.handle)items.push({icon:'close',label:'저장 폴더 연결 해제 (파일은 유지)',run:disconnectFileMirror});
-    return menu('Android 파일 저장',items,'자동 폴더 공유는 양방향 공유로 연결하세요. Windows에서 먼저 공유 그룹을 만들고, 휴대폰에서는 내려받은 같은 폴더에 참여합니다. 기존 파일을 교체하는 일반 Markdown 폴더 저장은 Android에서 지원하지 않습니다.');
+    return menu('Android 파일 저장',items,'자동 폴더 공유는 양방향 공유로 연결하세요. 휴대폰이나 컴퓨터 중 한 기기에서 그룹을 만들고, 다른 기기에서는 내려받은 같은 폴더에 참여합니다. 기존 파일을 교체하는 일반 Markdown 폴더 저장은 Android에서 지원하지 않습니다.');
   }
   const options=[
     {icon:'folder',label:'Windows ↔ Android 양방향 공유',run:()=>peerClient.menu()},

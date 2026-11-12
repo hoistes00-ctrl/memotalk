@@ -63,7 +63,7 @@ def main():
             phone.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
             phone.get_by_role('button', name='다른 기기의 공유 그룹 참여', exact=True).click()
             phone.get_by_role('button', name='폴더 선택', exact=True).click()
-            phone.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('Windows에서 먼저')")
+            phone.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('이 기기에서 새 공유 그룹')")
             assert phone.evaluate("localStorage.getItem('memotalk.fileMirror.auto')") == 'false'
             assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')).relativePath") == 'memotalk-peer-group.json'
             backup = {'app': 'memotalk', 'version': 2, 'rooms': [
@@ -80,15 +80,16 @@ def main():
             assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.v1')).msgs.room1[0].text") == '휴대폰 원문'
             assert phone.evaluate("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).msgs).flat().some(m=>m.text==='백업 원문 보존')")
 
-            sharing(desktop)
-            desktop.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
-            desktop.get_by_role('button', name='Windows에서 새 공유 그룹 만들기', exact=True).click()
-            desktop.get_by_role('button', name='폴더 선택', exact=True).click()
-            desktop.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')")
-            sharing(phone)
-            phone.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
-            phone.get_by_role('button', name='다른 기기의 공유 그룹 참여', exact=True).click()
-            phone.get_by_role('button', name='폴더 선택', exact=True).click()
+            first, second = (phone, desktop) if os.environ.get('MEMOTALK_FIRST_DEVICE') == 'android' else (desktop, phone)
+            sharing(first)
+            first.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
+            first.get_by_role('button', name='이 기기에서 새 공유 그룹 만들기', exact=True).click()
+            first.get_by_role('button', name='폴더 선택', exact=True).click()
+            first.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')")
+            sharing(second)
+            second.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
+            second.get_by_role('button', name='다른 기기의 공유 그룹 참여', exact=True).click()
+            second.get_by_role('button', name='폴더 선택', exact=True).click()
             for page, text in ((desktop, '휴대폰 원문'), (phone, '윈도우 원문')):
                 page.wait_for_function("expected => JSON.parse(localStorage.getItem('memotalk.v1')).msgs.room1.some(m=>m.text===expected)", arg=text)
                 page.get_by_text('공유 테스트', exact=True).click()
