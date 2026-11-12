@@ -1,6 +1,6 @@
 {
   "name": "memotalk-desktop",
-  "version": "17.1.0-sharing.4",
+  "version": "17.1.0-sharing.5",
   "private": true,
   "description": "메모톡 - Windows 설치형 메모 앱",
   "main": "main.js",

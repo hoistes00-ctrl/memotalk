@@ -17,6 +17,7 @@
   const clone=value=>structuredClone(value);
   const error=(code,path='')=>Object.assign(new Error(code),{code,relativePath:path});
   const same=(a,b)=>a!==null&&b!==null&&a.length===b.length&&a.every((x,i)=>x===b[i]);
+  const folderLabel=root=>String(root?.name||'공유 폴더').split(/[\\/]/).filter(Boolean).at(-1);
   async function stateStore(groupId,value){
     const db=await new Promise((resolve,reject)=>{
       const request=indexedDB.open(DB,1);
@@ -39,6 +40,9 @@
       if(value!==null&&Number.isFinite(Number(value)))settings[key]=Math.max(TIMER_MIN,Math.min(TIMER_MAX,Number(value)));
     }
     const client={active:false,busy:false,root:null,groupId:null,replica:null,timer:null,last:null};
+    function reportStatus(state,message){
+      client.status={state,message,at:new Date().toISOString()};options.status(state,message);
+    }
     const getBackend=()=>{
       const backend=options.backend();
       if(backend?.mode!=='local'||!backend.peerSnapshot||!backend.peerCommit)throw error('peer_local_backend_required');
@@ -159,16 +163,16 @@
     async function run(){
       if(!client.active||client.busy)return;
       if(!options.ready()){schedule(settings.poll);return;}
-      client.busy=true;
+      client.busy=true;client.lastAttemptAt=new Date().toISOString();
       const root=client.root;
       const task=async()=>{
         await window.MemoTalkFS?.beginMirror?.(root);
         try{
           const groupBytes=await read(P.GROUP_FILE),group=groupBytes&&JSON.parse(decoder.decode(groupBytes));
           if(group?.id!==client.groupId||group.format!=='memotalk-peer-group'||group.version!==P.VERSION)throw error('peer_group_changed',P.GROUP_FILE);
-          const result=await client.replica.tick();client.last=result;
+          const result=await client.replica.tick();client.last=result;client.lastCycleAt=new Date().toISOString();client.currentError=null;
           const waiting=result.pending+(result.blocked?.length||0);
-          options.status(waiting?'pending':'saved',`${root.name} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${waiting?' · 수신 미완료 '+waiting+'건':''} · 원격 전송 상태는 Obsidian 확인`);
+          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${waiting?' · 수신 미완료 '+waiting+'건':''} · 원격 전송 상태는 Obsidian 확인`);
         }finally{await window.MemoTalkFS?.endMirror?.(root);}
       };
       try{
@@ -176,21 +180,22 @@
         else if(window.MemoTalkFS)await task();
         else throw error('peer_lock_unavailable');
       }catch(e){
-        client.lastError={code:e.code||e.message,operation:e.operation||'peer-cycle',relativePath:e.relativePath||'',errno:e.errno,syscall:e.syscall,nativeMessage:e.nativeMessage,message:e.message,at:new Date().toISOString()};
+        client.lastError={code:e.code||e.message,operation:e.operation||'peer-cycle',relativePath:e.relativePath||'',errno:e.errno,syscall:e.syscall,nativeMessage:e.nativeMessage,staleReason:e.staleReason,changedSections:e.changedSections,message:e.message,at:new Date().toISOString()};
+        client.currentError=client.lastError;
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
         const pending=['peer_edit_in_progress','peer_attachment_pending','peer_stale','peer_busy','EBUSY'].includes(client.lastError.code);
-        options.status(pending?'pending':'error',`공유 ${pending?'대기':'중단'} · ${client.lastError.code} · ${client.lastError.relativePath}`);
+        reportStatus(pending?'pending':'error',`공유 ${pending?'대기':'중단'} · ${client.lastError.code} · ${client.lastError.relativePath}`);
       }finally{client.busy=false;schedule(settings.poll);}
     }
     async function activate(root,group){
       getBackend();
       if(group?.format!=='memotalk-peer-group'||group.version!==P.VERSION||!/^[a-zA-Z0-9_-]{1,256}$/.test(group.id))throw error('peer_group');
       let actor=localStorage.getItem(ACTOR);if(!actor){actor=crypto.randomUUID();localStorage.setItem(ACTOR,actor);}
-      client.root=root;client.groupId=group.id;
+      client.root=root;client.groupId=group.id;client.last=null;client.lastCycleAt=null;client.currentError=null;
       client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport});
       localStorage.setItem(CONFIG,JSON.stringify({groupId:group.id,enabled:true}));
       await options.remember(root,group.id);client.active=true;
-      options.status('pending',root.name+' · 양방향 공유 연결됨');schedule();
+      reportStatus('pending',folderLabel(root)+' · 양방향 공유 연결됨');schedule();
     }
     async function connect(createGroup){
       if(client.busy)return options.toast('공유 처리 중입니다. 완료 후 다시 선택하세요.');
@@ -223,25 +228,26 @@
         await activate(root,group);
       }catch(e){
         if(e.name==='AbortError')return;
-        client.lastError={code:e.code||e.message,operation:e.operation||'peer-connect',relativePath:e.relativePath||'',selectedFolder:client.root?.name||'',folderCheck:e.folderCheck,errno:e.errno,syscall:e.syscall,nativeMessage:e.nativeMessage,message:e.message,at:new Date().toISOString()};
+        client.lastError={code:e.code||e.message,operation:e.operation||'peer-connect',relativePath:e.relativePath||'',selectedFolder:client.root?.name||'',folderCheck:e.folderCheck,errno:e.errno,syscall:e.syscall,nativeMessage:e.nativeMessage,staleReason:e.staleReason,changedSections:e.changedSections,message:e.message,at:new Date().toISOString()};
+        client.currentError=client.lastError;
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
         const message=e.code==='peer_group_not_downloaded'
           ? '공유 그룹 파일이 없어요. 처음 시작한다면 이 기기에서 새 공유 그룹 만들기를 선택하세요. 다른 기기에서 이미 만들었다면 Obsidian Sync로 같은 폴더가 내려올 때까지 기다리세요. 내부 메모와 기존 파일은 유지됩니다.'
           : e.code==='peer_group_read_unavailable'
             ? '그룹 파일이 선택한 폴더 목록에는 있지만 읽을 수 없어요. 공유 오류 진단에서 선택한 폴더와 읽기 상태를 확인하세요. 기존 파일은 유지됩니다.'
             : '공유 연결 실패 · '+(e.code||e.message);
-        options.status('error',message);options.toast(message,true);
+        reportStatus('error',message);options.toast(message,true);
       }
     }
     async function restore(root){
       let config;try{config=JSON.parse(localStorage.getItem(CONFIG)||'null');}catch(_){}
       if(!config?.enabled)return;
-      if(!root){options.status('error','공유 폴더 권한을 다시 연결하세요.');return;}
+      if(!root){reportStatus('error','공유 폴더 권한을 다시 연결하세요.');return;}
       try{
         client.root=root;const data=await read(P.GROUP_FILE),group=data&&JSON.parse(decoder.decode(data));
         if(group?.id!==config.groupId)throw error('peer_group_changed');
         await activate(root,group);
-      }catch(e){options.status('error','공유 연결 복원 실패 · '+(e.code||e.message));}
+      }catch(e){reportStatus('error','공유 연결 복원 실패 · '+(e.code||e.message));}
     }
     async function disconnect(){
       if(client.busy)return options.toast('공유 처리 후 다시 시도하세요.');
@@ -270,7 +276,10 @@
     }
     function diagnostics(){
       let record=client.lastError;try{record ||= JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')||'null');}catch(_){}
-      options.openScrim('<h2>공유 오류 진단</h2><p>경로에 개인 정보가 포함될 수 있습니다.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 공유 오류 없음')+'</pre>');
+      let localData=null;try{const data=getBackend().peerSnapshot().data;localData={rooms:Object.values(data.rooms).filter(r=>!r.peerConflict&&r.kind!=='folder'&&r.kind!=='archive').length,memos:Object.values(data.msgs).flat().filter(m=>!m.peerConflict).length};}catch(_){}
+      const blockedReasons={};for(const entry of client.last?.blocked||[])blockedReasons[entry.code]=(blockedReasons[entry.code]||0)+1;
+      const current={active:client.active,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,blockedReasons};
+      options.openScrim('<h2>공유 오류 진단</h2><p>현재 상태와 과거 오류는 다릅니다. 주기 검사 완료는 원격 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><h3>현재 연결·반영 상태</h3><pre data-peer-current style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(JSON.stringify(current,null,2))+'</pre><h3>과거 마지막 오류 기록</h3><pre data-peer-history style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 과거 오류 없음')+'</pre>');
     }
     function menu(){
       const items=client.active?[

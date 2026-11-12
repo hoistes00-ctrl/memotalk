@@ -41,3 +41,18 @@ test('quota failure commits neither incoming data nor presentation receipt',asyn
   await assert.rejects(f.a.peerCommit(snapshot.token,{r:{id:'r',name:'incoming'}},{},'group','receipt'),{code:'quota'});
   assert.equal(f.read().rooms.r.name,'original');assert.equal(f.read().peerPresentations?.group,undefined);
 });
+test('metadata-only change between capture and receive preserves latest metadata without starvation',async()=>{
+  const f=fixture();await f.a.setRoom({id:'r',name:'original'});
+  const snapshot=f.a.peerSnapshot();
+  f.storage.set('memotalk.v1',JSON.stringify({...snapshot.data,seeded:true,peerPresentations:{other:'keep-receipt'}}));
+  await f.a.peerCommit(snapshot.token,{...snapshot.data.rooms,remote:{id:'remote',name:'received'}},snapshot.data.msgs,'group','receipt');
+  assert.equal(f.read().seeded,true);assert.equal(f.read().peerPresentations.other,'keep-receipt');
+  assert.equal(f.read().rooms.remote.name,'received');assert.equal(f.read().peerPresentations.group,'receipt');
+});
+test('room rename plus metadata change still rejects stale receive without losing the rename',async()=>{
+  const f=fixture();await f.a.setRoom({id:'r',name:'original'});
+  const snapshot=f.a.peerSnapshot();
+  f.storage.set('memotalk.v1',JSON.stringify({...snapshot.data,seeded:true,rooms:{r:{id:'r',name:'user renamed'}}}));
+  await assert.rejects(f.a.peerCommit(snapshot.token,snapshot.data.rooms,snapshot.data.msgs,'group','receipt'),{code:'peer_stale',staleReason:'memo_data_changed'});
+  assert.equal(f.read().rooms.r.name,'user renamed');assert.equal(f.read().peerPresentations?.group,undefined);
+});

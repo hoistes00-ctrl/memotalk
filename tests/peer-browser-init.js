@@ -13,7 +13,16 @@
   }
   const rpc=async(command,args={})=>(await fetch('/native',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({device,command,args})})).json();
   const ready=rpc('reloadContext');
-  const request=async(command,args)=>{await ready;return rpc(command,args);};
+  const request=async(command,args)=>{
+    await ready;const result=await rpc(command,args);
+    // Every receive scan changes unrelated metadata after capture. Full-token CAS
+    // previously rejected every receive forever even though notes had not changed.
+    if(command==='list'&&args?.path?.join('/')==='memotalk-peer-v1/operations'){
+      const raw=localStorage.getItem('memotalk.v1');
+      if(raw){const data=JSON.parse(raw);data.peerTestMetadataCycle=(data.peerTestMetadataCycle||0)+1;localStorage.setItem('memotalk.v1',JSON.stringify(data));}
+    }
+    return result;
+  };
   if(device==='windows')window.MemoTalkNative={request};
   else window.AndroidMemoTalk={postMessage(payload){
     const {id,command,args,session}=JSON.parse(payload);

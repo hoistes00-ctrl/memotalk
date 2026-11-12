@@ -289,7 +289,7 @@ body{position:relative;margin:0}
 
 /* Local Markdown folder mirroring (desktop-capable browsers). */
 .file-sync-bar{display:flex;align-items:center;gap:8px;padding:7px 14px;background:var(--surface);border-top:1px solid var(--line);flex-shrink:0;min-width:0}
-.file-sync-bar .file-sync-state{flex:1;min-width:0;font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-sync-bar .file-sync-state{flex:1;min-width:0;font-size:12px;color:var(--ink-2);white-space:normal;overflow-wrap:anywhere}
 .file-sync-bar button{background:var(--surface-2);padding:8px 11px;min-height:38px;border-radius:10px;font-size:13px;font-weight:600;flex-shrink:0}
 .file-sync-bar button:disabled{opacity:.5;cursor:progress}
 .file-sync-bar[data-sync="error"] .file-sync-state{color:var(--danger)}
@@ -734,8 +734,14 @@ function makeLocal(){
       return {token,data:structuredClone(latest)};
     },
     peerCommit(token,rooms,msgs,groupId,presentation){
-      if(localStorage.getItem(KEY)!==token)throw Object.assign(new Error('peer_stale'),{code:'peer_stale'});
-      const latest=token?JSON.parse(token):data;
+      const currentToken=localStorage.getItem(KEY);
+      let latest=currentToken?JSON.parse(currentToken):{rooms:{},msgs:{},seeded:false};
+      if(currentToken!==token){
+        // Rebase only unrelated metadata. Any changed room/message still rejects the receive.
+        const captured=token===null?{rooms:{},msgs:{}}:typeof token==='string'?JSON.parse(token):null;
+        const changedSections={rooms:!captured||JSON.stringify(captured.rooms)!==JSON.stringify(latest.rooms),msgs:!captured||JSON.stringify(captured.msgs)!==JSON.stringify(latest.msgs)};
+        if(changedSections.rooms||changedSections.msgs)throw Object.assign(new Error('peer_stale'),{code:'peer_stale',operation:'peer-local-commit',staleReason:captured?'memo_data_changed':'missing_capture',changedSections});
+      }
       const next={...latest,rooms,msgs,peerPresentations:{...(latest.peerPresentations||{}),[groupId]:presentation}};
       try{localStorage.setItem(KEY,JSON.stringify(next));}catch(_){throw Object.assign(new Error('quota'),{code:'quota'});}
       data=next;emitRooms();Object.keys(msgCb).forEach(emitMsgs);

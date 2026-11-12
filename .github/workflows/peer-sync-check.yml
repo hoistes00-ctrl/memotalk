@@ -131,7 +131,7 @@ jobs:
         run: |
           python3 tests/check-android-package.py android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview4'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview5'"
       - uses: actions/upload-artifact@v4
         with:
           name: MemoTalk-sharing-preview-Android-tested

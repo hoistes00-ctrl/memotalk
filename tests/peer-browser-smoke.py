@@ -110,6 +110,18 @@ def main():
             second.get_by_role('button', name='폴더 선택', exact=True).click()
             for page, text in ((desktop, '휴대폰 원문'), (phone, '윈도우 원문')):
                 page.wait_for_function("expected => JSON.parse(localStorage.getItem('memotalk.v1')).msgs.room1.some(m=>m.text===expected)", arg=text)
+                if page is phone:
+                    assert page.locator('#file-sync-state').evaluate('(el)=>el.scrollWidth<=el.clientWidth && el.scrollHeight<=el.clientHeight'), 'Mobile status must not clip its text'
+                    sharing(page)
+                    page.get_by_role('button', name='공유 오류 진단', exact=True).click()
+                    current = json.loads(page.locator('[data-peer-current]').inner_text())
+                    previous = json.loads(page.locator('[data-peer-history]').inner_text())
+                    assert current['active'] and current['groupId']
+                    assert current['currentError'] is None
+                    assert current['lastCompletedLocalCycleAt']
+                    assert current['localData']['memos'] >= 2
+                    assert previous['code'] == 'peer_group_not_downloaded'
+                    page.keyboard.press('Escape')
                 page.get_by_text('공유 테스트', exact=True).click()
 
             def edit(page, old, new):

@@ -5,21 +5,22 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const {webcrypto}=require('node:crypto');
 
-function fixture({cancel=false,group=null,failWrite=false,listedGroup=false}={}){
+function fixture({cancel=false,group=null,failWrite=false,listedGroup=false,tickError=null}={}){
   const events=[],storage=new Map([['memotalk.v1','original backup data']]);
-  const engine={VERSION:1,GROUP_FILE:'memotalk-peer-group.json',canonical:JSON.stringify,Replica:class{}};
+  const engine={VERSION:1,GROUP_FILE:'memotalk-peer-group.json',canonical:JSON.stringify,Replica:class{async tick(){if(tickError)throw tickError;return {revisions:8,pending:0,blocked:[],conflicts:0};}}};
   const context=vm.createContext({module:{exports:{}},TextEncoder,TextDecoder,structuredClone,crypto:webcrypto,
     localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},
-    document:{addEventListener(){}},setTimeout:()=>0,clearTimeout(){},
-    window:{AndroidMemoTalk:{},async showDirectoryPicker(){events.push('picker');
+    document:{addEventListener(){}},navigator:{},setTimeout:()=>0,clearTimeout(){},
+    window:{AndroidMemoTalk:{},MemoTalkFS:{async beginMirror(){},async endMirror(){}},async showDirectoryPicker(){events.push('picker');
       if(cancel)throw Object.assign(Error('cancel'),{name:'AbortError'});return {name:'new Android folder',async *values(){if(listedGroup)yield {name:'memotalk-peer-group.json',kind:'file'};}};}}});
   vm.runInContext(fs.readFileSync('shared/peer-sync-client.js','utf8'),context);
-  const options={engine,backend:()=>({mode:'local',peerSnapshot(){},peerCommit(){}}),ask:async()=>true,
+  const options={engine,backend:()=>({mode:'local',peerSnapshot(){return {data:{rooms:{},msgs:{}}};},peerCommit(){}}),ask:async()=>true,ready:()=>true,
     pauseLegacy:async()=>{events.push('pause');storage.set('memotalk.fileMirror.auto','false');},
     permission:async()=>true,read:async()=>{events.push('read');return group?new TextEncoder().encode(JSON.stringify(group)):null;},
     write:async(root,path,data)=>{events.push('write');if(failWrite)throw Object.assign(Error('disk full'),{code:'ENOSPC'});assert.equal(group,null);group=JSON.parse(new TextDecoder().decode(data));},remember:async()=>events.push('remember'),
-    status:(state,message)=>events.push({state,message}),toast:message=>events.push({toast:message})};
-  return {client:context.module.exports.create(options),events,storage};
+    status:(state,message)=>events.push({state,message}),toast:message=>events.push({toast:message}),esc:String,
+    menu:(title,items)=>events.push({items}),openScrim:content=>events.push({sheet:content})};
+  return {client:context.module.exports.create(options),events,storage,setTickError:value=>{tickError=value;}};
 }
 test('Android-first missing group stops legacy autosave before picker and preserves backup',async()=>{
   const f=fixture();await f.client.connect(false);
@@ -84,4 +85,17 @@ test('file listed but unavailable is not falsely diagnosed as absent',async()=>{
   assert.equal(detail.folderCheck.listSucceeded,true);
   assert.equal(f.client.active,false);assert.equal(f.events.includes('write'),false);
   assert.equal(f.storage.get('memotalk.v1'),'original backup data');
+});
+test('diagnostics distinguish current successful receive from a past stale error',async()=>{
+  const f=fixture({group:{format:'memotalk-peer-group',version:1,id:'current-group'},tickError:Object.assign(Error('peer_stale'),{code:'peer_stale',operation:'peer-local-commit',staleReason:'memo_data_changed',changedSections:{rooms:false,msgs:true}})});
+  await f.client.connect(false);await f.client.run();
+  f.setTickError(null);await f.client.run();f.client.menu();
+  f.events.find(e=>e.items).items.find(e=>e.label==='공유 오류 진단').run();
+  const text=f.events.find(e=>e.sheet).sheet;
+  const current=JSON.parse(/<pre data-peer-current[^>]*>([\s\S]*?)<\/pre>/.exec(text)[1]);
+  const previous=JSON.parse(/<pre data-peer-history[^>]*>([\s\S]*?)<\/pre>/.exec(text)[1]);
+  assert.equal(current.currentError,null);assert.equal(current.status.state,'saved');
+  assert.equal(current.groupId,'current-group');assert.equal(current.receivedRevisions,8);
+  assert.ok(current.lastCompletedLocalCycleAt);assert.equal(previous.code,'peer_stale');
+  assert.equal(previous.staleReason,'memo_data_changed');assert.equal(previous.changedSections.msgs,true);
 });

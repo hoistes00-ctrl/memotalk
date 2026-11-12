@@ -42,7 +42,7 @@ for item in sorted(output.iterdir()):
                    'sha256': digest_file(item)})
 run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
 info = {'version': version, 'sourceCommit': source, 'branch': os.environ['GITHUB_REF_NAME'],
-        'validationRun': run_url, 'androidPackage': 'kr.memotalk.app.sharingpreview4',
+        'validationRun': run_url, 'androidPackage': 'kr.memotalk.app.sharingpreview5',
         'androidSigning': signing, 'windowsUnsigned': True, 'assets': assets,
         'verified': ['Node protocol/storage/connection regression suite on Windows/Linux', 'two-profile browser UI on Windows/Linux',
                      '6 Android JVM tests', '5 actual Android API35 SAF/WebView/create/restart tests',
@@ -58,10 +58,12 @@ notes = f'''Windows·Android 메모톡 앱 간 양방향 폴더 공유 시험판
 
 - 두 메모톡 앱의 추가·수정·삭제, 사진·댓글을 공유하며 동시 수정 두 버전은 모두 보존합니다.
 - 휴대폰 또는 Windows 중 한 기기에서 새 그룹을 만들고, 다른 기기는 같은 vault의 같은 하위 폴더에 참여하세요.
+- 메모 내용이 그대로인 부가정보 변경 때문에 수신이 계속 보류되는 경우를 수정했습니다. 실제 사용자 수정은 계속 보호합니다.
+- 상태 글씨 전체를 줄바꿈해 표시하고, 진단에 현재 상태와 과거 오류를 구분합니다.
 - 오류 알림은 기본 2.5초 뒤 부드럽게 사라집니다. 조작 설정에서 표시/사라지는 시간을 조절하고 저장할 수 있습니다.
 - 공유 파일 부재와 읽기 실패를 구분하고 선택된 폴더 이름을 진단에 기록합니다.
 - 휴대폰에서도 이 기기에서 새 공유 그룹 만들기로 먼저 시작할 수 있습니다. 그룹 생성은 한 기기에서만 하고, 다른 기기는 참여하세요.
-- 이번 APK는 메모톡 공유 시험판 4(kr.memotalk.app.sharingpreview4)이며 이전 시험판을 삭제하지 않고 설치할 수 있습니다. 기존 앱에서 JSON 백업을 내보내 새 앱으로 가져오세요.
+- 이번 APK는 메모톡 공유 시험판 5(kr.memotalk.app.sharingpreview5)이며 이전 시험판을 삭제하지 않고 설치할 수 있습니다. 기존 앱에서 JSON 백업을 내보내 새 앱으로 가져오세요.
 - 두 기기의 Obsidian에서 **Sync all other types**를 켜고 Obsidian을 실행해 두세요. 앱 종료/절전 중 항상 실시간 전송을 보장하지 않습니다.
 - 기존 앱에서 먼저 JSON 백업을 보관하세요. Android는 별도 앱이며 기존 메모가 필요하면 백업을 가져오세요. Windows 포터블도 기존 앱과 내부 저장소를 공유할 수 있으므로 기존 앱을 종료하세요.
 - Windows EXE는 서명되지 않았습니다. Android 서명: `{signing}`. `debug-ephemeral`이면 다음 시험 APK의 덮어 설치가 거부될 수 있으므로 삭제 전 반드시 백업하세요.
