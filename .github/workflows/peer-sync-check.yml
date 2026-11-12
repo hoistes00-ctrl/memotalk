@@ -1,0 +1,227 @@
+name: Validate Windows-Android shared-folder sync
+
+on:
+  push:
+    branches: ['feature/obsidian-bridge-prototype']
+    paths:
+      - 'shared/**'
+      - 'windows/**'
+      - '.github/scripts/*sharing*'
+      - 'android/**'
+      - 'tests/**'
+      - '.github/workflows/peer-sync-check.yml'
+  pull_request:
+    paths:
+      - 'shared/**'
+      - 'windows/**'
+      - 'android/**'
+      - 'tests/peer-*'
+      - '.github/workflows/peer-sync-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install playwright
+      - run: python -m playwright install chromium
+      - run: node tests/check-ui.mjs
+      - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs tests/toast.test.cjs
+      - run: python tests/peer-browser-smoke.py
+      - name: Repeat UI roundtrip with Android creating the group first
+        env:
+          MEMOTALK_FIRST_DEVICE: android
+        run: python tests/peer-browser-smoke.py
+
+  android:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Use optional persistent owner identity for the separate preview
+        env:
+          KEYSTORE_B64: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PW: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MEMOTALK_ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.MEMOTALK_ANDROID_KEY_PASSWORD }}
+        run: python3 .github/scripts/setup-peer-preview-signing.py
+      - name: Verify SAF writer and build isolated sharing-preview APK
+        working-directory: android
+        run: gradle --no-daemon testSharingPreviewUnitTest assembleSharingPreview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-sharing-preview-Android
+          if-no-files-found: error
+          path: |
+            android/app/build/outputs/apk/sharingPreview/*.apk
+            android/app/build/reports/tests/testSharingPreviewUnitTest/**
+
+  android-runtime:
+    needs: android
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    outputs:
+      signing: ${{ steps.signing.outputs.identity }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Use optional persistent owner identity for the separate preview
+        env:
+          KEYSTORE_B64: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PW: ${{ secrets.MEMOTALK_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MEMOTALK_ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.MEMOTALK_ANDROID_KEY_PASSWORD }}
+        run: python3 .github/scripts/setup-peer-preview-signing.py
+      - name: Generate synthetic Windows revision fixtures
+        run: node tests/make-peer-device-fixture.cjs
+      - name: Record preview signing identity without exposing keys
+        id: signing
+        run: echo "identity=$MEMOTALK_PREVIEW_SIGNING" >> "$GITHUB_OUTPUT"
+      - name: Enable KVM for the disposable emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise actual SAF and Android WebView sharing
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            gradle -p android --no-daemon connectedSharingPreviewAndroidTest
+            bash tests/export-peer-emulator.sh
+            node tests/verify-peer-android-return.cjs peer-returned/peer-return
+      - name: Verify the actual tested APK package and shared source
+        run: |
+          python3 tests/check-android-package.py android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview5'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-sharing-preview-Android-tested
+          if-no-files-found: error
+          path: android/app/build/outputs/apk/sharingPreview/*.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MemoTalk-sharing-Android-runtime-reports
+          path: |
+            android/app/build/reports/androidTests/**
+            android/app/build/outputs/androidTest-results/**
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-sharing-Android-return-revisions
+          if-no-files-found: error
+          path: peer-returned/peer-return/*.json
+
+  roundtrip-windows:
+    needs: android-runtime
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: MemoTalk-sharing-Android-return-revisions
+          path: android-return
+      - run: node tests/verify-peer-android-return.cjs android-return
+      - name: Build actual Windows application for cross-platform runtime proof
+        working-directory: windows
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          npm run dist:win -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+          npm run dist:portable -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'Portable build failed' }
+      - run: node tests/check-windows-package.cjs
+      - name: Install NSIS preview and verify the actually installed app
+        shell: pwsh
+        run: |
+          $installTarget = Join-Path $env:RUNNER_TEMP 'MemoTalkSharingInstall'
+          if (-not ([IO.Path]::GetFullPath($installTarget)).StartsWith(([IO.Path]::GetFullPath($env:RUNNER_TEMP) + [IO.Path]::DirectorySeparatorChar))) { throw 'Unsafe test install location' }
+          $installer = @(Get-ChildItem windows/dist -Filter 'MemoTalk-Setup-*.exe')
+          if ($installer.Count -ne 1) { throw 'Expected one tested installer' }
+          $install = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$installTarget") -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) { throw 'Installer failed' }
+          node tests/peer-packaged-windows.cjs android-return (Join-Path $installTarget 'MemoTalk.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Windows roundtrip failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-sharing-preview-Windows
+          if-no-files-found: error
+          path: windows/dist/*.exe
+
+  publish-preview:
+    needs: [protocol, android, android-runtime, roundtrip-windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/obsidian-bridge-prototype' && contains(github.event.head_commit.message, '[publish-sharing-preview]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: MemoTalk-sharing-preview-Android-tested
+          path: release-input/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: MemoTalk-sharing-preview-Windows
+          path: release-input/windows
+      - name: Prepare tested executables, checksums and build provenance
+        env:
+          PREVIEW_SIGNING: ${{ needs.android-runtime.outputs.signing }}
+        run: python3 .github/scripts/prepare-sharing-preview.py
+      - name: Publish separate prerelease from the tested source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./windows/package.json').version")
+          tag="sharing-preview-${version}-${GITHUB_RUN_ID}"
+          (cd release-assets && sha256sum --check SHA256SUMS.txt)
+          gh release create "$tag" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "MemoTalk ${version} - Windows Android sharing preview" \
+            --prerelease --latest=false --notes-file release-notes.md

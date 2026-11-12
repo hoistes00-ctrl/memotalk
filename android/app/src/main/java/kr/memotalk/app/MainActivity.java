@@ -28,6 +28,12 @@ import org.json.JSONObject;
 import org.json.JSONException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FileOutputStream;
+import android.os.ParcelFileDescriptor;
+import java.util.Arrays;
+import java.util.UUID;
+import java.io.FileNotFoundException;
+import android.system.ErrnoException;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
@@ -44,9 +50,12 @@ public class MainActivity extends Activity {
     private WebView web;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
-    private Uri rootTree;
+    private volatile Uri rootTree;
+    private volatile String folderToken=UUID.randomUUID().toString();
+    private volatile String mirrorLease;
     private int waitingRequestId = -1;
     private String waitingExportBase64;
+    private String waitingSession="";
     private ValueCallback<Uri[]> fileChooserCallback;
 
     @Override public void onCreate(Bundle state) {
@@ -117,13 +126,16 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon){
+                mirrorLease=null;folderToken=UUID.randomUUID().toString();
+            }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (!"appassets.androidplatform.net".equals(url.getHost())) return null;
                 String pathname = url.getPath();
                 if(pathname == null) return new WebResourceResponse("text/plain", "utf-8", 404, "Not found", null, null);
                 String name = pathname.startsWith("/") ? pathname.substring(1) : pathname;
-                if(!name.equals("index.html") && !name.equals("platform-bridge.js"))
+                if(!name.equals("index.html") && !name.equals("platform-bridge.js") && !name.equals("mirror-engine.js") && !name.equals("peer-sync-engine.js") && !name.equals("peer-sync-client.js"))
                     return new WebResourceResponse("text/plain", "utf-8", 404, "Not found", null, null);
                 try {
                     InputStream file = getAssets().open(name);
@@ -150,47 +162,74 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void postMessage(String payload) {
             io.execute(() -> {
                 int id = -1;
+                String command="request",session="";JSONObject args=null;
                 try {
                     JSONObject req = new JSONObject(payload);
-                    id = req.getInt("id");
-                    String command = req.getString("command");
-                    JSONObject args = req.optJSONObject("args");
+                    id = req.getInt("id");session=req.optString("session","");
+                    command = req.getString("command");
+                    args = req.optJSONObject("args");
                     if(args==null) args = new JSONObject();
                     if (command.equals("pickFolder")) {
                         final int callbackId=id;
-                        runOnUiThread(() -> chooseDirectory(callbackId));
+                        final String requestSession=session;
+                        runOnUiThread(() -> chooseDirectory(callbackId,requestSession));
                         return;
                     }
                     if (command.equals("download")) {
                         final int callbackId=id;
                         final JSONObject data=args;
-                        runOnUiThread(() -> exportFile(callbackId, data));
+                        final String requestSession=session;
+                        runOnUiThread(() -> exportFile(callbackId, data,requestSession));
                         return;
                     }
-                    respond(id, perform(command,args), null);
-                } catch (Exception error) { respond(id, null, error.getMessage()); }
+                    respond(id, perform(command,args), null,session);
+                } catch (Exception error) { respond(id, null, describeFailure(error,command,args),session); }
             });
         }
     }
-    private void respond(int id, Object result, String failure) {
+    private void respond(int id,Object result,Object failure,String session) {
         try {
             JSONObject response = new JSONObject();
-            response.put("id", id);
+            response.put("id", id);response.put("session",session);
             if(failure != null) response.put("error", failure);
             else response.put("result", result == null ? JSONObject.NULL : result);
             String script = "window.__memoNativeResolve && window.__memoNativeResolve(" + response.toString() + ")";
             runOnUiThread(() -> { if (web != null) web.evaluateJavascript(script,null); });
         } catch (JSONException ignored) {}
     }
-    private void chooseDirectory(int id) {
-        waitingRequestId = id;
+    private JSONObject describeFailure(Exception error,String command,JSONObject args) {
+        JSONObject out=new JSONObject();
+        try {
+            String code=error instanceof VerifiedDocumentWriter.Failure?((VerifiedDocumentWriter.Failure)error).code:
+                error instanceof SecurityException?"EACCES":error instanceof FileNotFoundException?"ENOENT":
+                "NotFoundError".equals(error.getMessage())?"ENOENT":"EIO";
+            out.put("message",String.valueOf(error.getMessage()));out.put("code",code);
+            out.put("operation",error instanceof VerifiedDocumentWriter.Failure?((VerifiedDocumentWriter.Failure)error).operation:command);
+            JSONArray path=args==null?null:args.optJSONArray("path");StringBuilder relative=new StringBuilder();
+            if(path!=null)for(int i=0;i<path.length();i++){if(i>0)relative.append('/');relative.append(path.optString(i));}
+            out.put("relativePath",relative.toString());
+            Throwable cause=error;while(cause!=null){if(cause instanceof ErrnoException){out.put("errno",((ErrnoException)cause).errno);String detail=cause.getMessage();int cut=detail==null?-1:detail.indexOf(" failed:");out.put("syscall",cut>0?detail.substring(0,cut):command);out.put("nativeMessage",detail);break;}cause=cause.getCause();}
+        }catch(Exception ignored){}
+        return out;
+    }
+    private Exception nativeFailure(String code,String operation){return new VerifiedDocumentWriter.Failure(code,operation);}
+    private JSONObject folderStatus() throws Exception {
+        JSONObject obj=new JSONObject();obj.put("connected",rootTree!=null);obj.put("name",getTreeName());
+        obj.put("folderToken",folderToken);obj.put("atomicWrites",true);return obj;
+    }
+    private void chooseDirectory(int id,String session) {
+        if(mirrorLease!=null||waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","pickFolder"),"pickFolder",null),session);return;}
+        waitingRequestId = id;waitingSession=session;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.putExtra(Intent.EXTRA_LOCAL_ONLY,true);
+        if(rootTree!=null)try{intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,getRootDoc());}catch(Exception ignored){}
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {startActivityForResult(intent, REQUEST_TREE);}
-        catch (Exception e) {waitingRequestId=-1; respond(id,null,e.getMessage());}
+        catch (Exception e) {waitingRequestId=-1; respond(id,null,e.getMessage(),session);}
     }
-    private void exportFile(int id, JSONObject args) {
-        waitingRequestId=id;
+    private void exportFile(int id, JSONObject args,String session) {
+        if(waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","download"),"download",args),session);return;}
+        waitingRequestId=id;waitingSession=session;
         waitingExportBase64=args.optString("base64", "");
         String name=args.optString("name", "MemoTalk.zip").replaceAll("[\\\\/\\p{Cntrl}]", "_");
         String mime = name.endsWith(".zip") ? "application/zip" : name.endsWith(".json") ? "application/json" :
@@ -200,7 +239,7 @@ public class MainActivity extends Activity {
         intent.setType(mime);
         intent.putExtra(Intent.EXTRA_TITLE,name);
         try {startActivityForResult(intent, REQUEST_EXPORT);}
-        catch (Exception e) { waitingRequestId=-1;waitingExportBase64=null;respond(id,null,e.getMessage()); }
+        catch (Exception e) { waitingRequestId=-1;waitingExportBase64=null;respond(id,null,e.getMessage(),session); }
     }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode,resultCode,intent);
@@ -213,19 +252,21 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode != REQUEST_TREE && requestCode != REQUEST_EXPORT) return;
-        int id=waitingRequestId; waitingRequestId=-1;
+        int id=waitingRequestId;String session=waitingSession;waitingRequestId=-1;waitingSession="";
         if(resultCode!=RESULT_OK || intent==null || intent.getData()==null) {
-            waitingExportBase64=null;respond(id,null,"cancelled");return;
+            waitingExportBase64=null;respond(id,null,"cancelled",session);return;
         }
         Uri uri=intent.getData();
         if(requestCode==REQUEST_TREE) {
             try {
-                getContentResolver().takePersistableUriPermission(uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                rootTree=uri; prefs.edit().putString("rootTree",uri.toString()).apply();
-                try { JSONObject result=new JSONObject();result.put("connected",true);result.put("name",getTreeName()); respond(id,result,null); }
-                catch(Exception e) {respond(id,null,e.getMessage());}
-            } catch (Exception e) {respond(id,null,e.getMessage());}
+                if(mirrorLease!=null)throw nativeFailure("EBUSY","pickFolder");
+                int granted=intent.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                if(granted!=(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))throw nativeFailure("EACCES","pickFolder");
+                getContentResolver().takePersistableUriPermission(uri,granted);
+                rootTree=uri;folderToken=UUID.randomUUID().toString();prefs.edit().putString("rootTree",uri.toString()).apply();
+                try { respond(id,folderStatus(),null,session); }
+                catch(Exception e) {respond(id,null,e.getMessage(),session);}
+            } catch (Exception e) {respond(id,null,e.getMessage(),session);}
         } else {
             String content=waitingExportBase64;waitingExportBase64=null;
             io.execute(() -> {
@@ -236,8 +277,8 @@ public class MainActivity extends Activity {
                         if(stream==null)throw new Exception("파일 쓰기 실패");
                         stream.write(data);
                     }
-                    respond(id,true,null);
-                } catch(Exception e) { respond(id,null,e.getMessage()); }
+                    respond(id,true,null,session);
+                } catch(Exception e) { respond(id,null,e.getMessage(),session); }
             });
         }
     }
@@ -305,17 +346,27 @@ public class MainActivity extends Activity {
         return null;
     }
     private Object perform(String command,JSONObject args) throws Exception {
-        if(command.equals("hasFolder")) {
-            JSONObject obj=new JSONObject();obj.put("connected",rootTree!=null);obj.put("name",getTreeName());return obj;
+        if(command.equals("hasFolder"))return folderStatus();
+        if(command.equals("disconnect")){
+            if(mirrorLease!=null)throw nativeFailure("EBUSY",command);
+            rootTree=null;folderToken=UUID.randomUUID().toString();prefs.edit().remove("rootTree").apply();return true;
         }
-        if(command.equals("disconnect")) {rootTree=null;prefs.edit().remove("rootTree").apply();return true;}
+        if(!folderToken.equals(args.optString("folderToken")))throw nativeFailure("ESTALE",command);
+        if(command.equals("beginMirror")){
+            if(mirrorLease!=null)throw nativeFailure("EBUSY",command);
+            mirrorLease=UUID.randomUUID().toString();JSONObject result=new JSONObject();result.put("leaseId",mirrorLease);return result;
+        }
+        if(mirrorLease!=null&&!mirrorLease.equals(args.optString("leaseId")))throw nativeFailure("EBUSY",command);
+        if(command.equals("endMirror")){mirrorLease=null;return true;}
         String[] path=checkedParts(args.optJSONArray("path"),command.equals("list")||command.equals("stat"));
-        Child child=traverse(path,command.equals("touch"),command.equals("mkdir"));
+        Child child=traverse(path,false,command.equals("mkdir"));
         if(command.equals("stat")) return child==null?nodeInfo(false,null):nodeInfo(true,child.mime);
-        if(command.equals("touch")||command.equals("mkdir")) {
+        if(command.equals("touch"))throw nativeFailure("EOPNOTSUPP",command);
+        if(command.equals("mkdir")) {
             if(child==null)throw new Exception("파일 생성 오류");
             return nodeInfo(true,child.mime);
         }
+        if(command.equals("write"))return verifiedWrite(path,args);
         if(child==null)throw new Exception("NotFoundError");
         if(command.equals("list")) {
             if(!"directory".equals(kindOf(child.mime)))throw new Exception("폴더가 아닙니다");
@@ -340,15 +391,6 @@ public class MainActivity extends Activity {
             }
             JSONObject result=new JSONObject();result.put("base64",Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP));return result;
         }
-        if(command.equals("write")) {
-            byte[] content=Base64.decode(args.getString("base64"),Base64.DEFAULT);
-            if(content.length>MAX_FILE)throw new Exception("64MB 제한 초과");
-            try(OutputStream out=getContentResolver().openOutputStream(child.uri,"wt")) {
-                if(out==null)throw new Exception("파일 쓰기 실패");
-                out.write(content);
-            }
-            return true;
-        }
         if(command.equals("remove")) {
             if(DocumentsContract.Document.MIME_TYPE_DIR.equals(child.mime)) {
                 Uri listing=DocumentsContract.buildChildDocumentsUriUsingTree(rootTree,DocumentsContract.getDocumentId(child.uri));
@@ -360,6 +402,52 @@ public class MainActivity extends Activity {
             return true;
         }
         throw new Exception("알 수 없는 작업입니다: " + command);
+    }
+    private byte[] readDocument(Uri uri) throws Exception {
+        ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+        try(InputStream stream=getContentResolver().openInputStream(uri)){
+            if(stream==null)throw new FileNotFoundException("document unavailable");
+            byte[] buffer=new byte[8192];int count;
+            while((count=stream.read(buffer))!=-1){bytes.write(buffer,0,count);if(bytes.size()>MAX_FILE)throw nativeFailure("EFBIG","read");}
+        }
+        return bytes.toByteArray();
+    }
+    private Object verifiedWrite(String[] path,JSONObject args) throws Exception {
+        if(!args.has("expectedBase64"))throw nativeFailure("EINVAL","write");
+        byte[] content=Base64.decode(args.getString("base64"),Base64.DEFAULT);
+        byte[] expected=args.isNull("expectedBase64")?null:Base64.decode(args.getString("expectedBase64"),Base64.DEFAULT);
+        if(content.length>MAX_FILE)throw nativeFailure("EFBIG","write");
+        final String token=folderToken;
+        String[] parents=Arrays.copyOf(path,path.length-1);
+        Child parent=traverse(parents,false,false);
+        if(parent==null||!DocumentsContract.Document.MIME_TYPE_DIR.equals(parent.mime))throw new FileNotFoundException("parent directory missing");
+        final Uri directory=parent.uri;final String name=path[path.length-1];
+        VerifiedDocumentWriter.write(new VerifiedDocumentWriter.Store(){
+            private void check() throws Exception {if(!folderToken.equals(token))throw nativeFailure("ESTALE","write");}
+            public byte[] readTarget() throws Exception {check();Child found=findChild(directory,name);return found==null?null:readDocument(found.uri);}
+            public String createTemporary() throws Exception {
+                check();Uri created=DocumentsContract.createDocument(getContentResolver(),directory,"application/octet-stream",".memotalk-"+UUID.randomUUID()+".tmp");
+                if(created==null)throw new FileNotFoundException("temporary document unavailable");return created.toString();
+            }
+            public void writeAndSync(String temporary,byte[] bytes) throws Exception {
+                check();try(ParcelFileDescriptor descriptor=getContentResolver().openFileDescriptor(Uri.parse(temporary),"rwt")){
+                    if(descriptor==null)throw new FileNotFoundException("temporary descriptor unavailable");
+                    try(ParcelFileDescriptor.AutoCloseOutputStream stream=new ParcelFileDescriptor.AutoCloseOutputStream(descriptor)){
+                        stream.write(bytes);stream.flush();stream.getFD().sync();
+                    }
+                }
+            }
+            public byte[] readTemporary(String temporary) throws Exception {check();return readDocument(Uri.parse(temporary));}
+            public void publish(String temporary) throws Exception {
+                check();if(findChild(directory,name)!=null)throw nativeFailure("ESTALE","publish");
+                Uri published=DocumentsContract.renameDocument(getContentResolver(),Uri.parse(temporary),name);
+                if(published==null)throw new UnsupportedOperationException("provider does not support verified rename");
+                Child found=findChild(directory,name);
+                if(found==null||!found.uri.equals(published))throw nativeFailure("EIO","verify-name");
+            }
+            public void cleanupTemporary(String temporary) throws Exception {DocumentsContract.deleteDocument(getContentResolver(),Uri.parse(temporary));}
+        },content,expected);
+        return true;
     }
     @Override public void onBackPressed() {
         if(web==null){super.onBackPressed();return;}

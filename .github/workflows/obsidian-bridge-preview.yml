@@ -1,0 +1,95 @@
+name: Publish separate Windows Obsidian bridge preview
+
+on:
+  push:
+    branches: ['feature/obsidian-bridge-prototype']
+    paths:
+      - '.github/workflows/obsidian-bridge-preview.yml'
+      - 'windows/package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: contains(github.event.head_commit.message, '[publish-obsidian-preview]')
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate UI and verified filesystem behavior
+        shell: pwsh
+        run: |
+          node tests/check-ui.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'UI validation failed' }
+          node --test tests/mirror.test.cjs tests/native-bridge.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Mirror validation failed' }
+      - name: Read preview version
+        id: metadata
+        shell: pwsh
+        run: |
+          $version = (Get-Content windows/package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^17\.0\.3-obsidian-bridge\.\d+$') { throw 'Unexpected preview version' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Build installer and portable executable
+        working-directory: windows
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          npm run dist:win -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          npm run dist:portable -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'Portable build failed' }
+      - name: Verify packaged sources and create checksums
+        shell: pwsh
+        run: |
+          node tests/check-windows-package.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged source validation failed' }
+          $files = @(Get-ChildItem windows/dist -File -Filter '*.exe')
+          if ($files.Count -ne 2) { throw 'Expected exactly installer and portable executable' }
+          $checksums = $files | ForEach-Object { "$( (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() )  $($_.Name)" }
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'windows/dist/SHA256SUMS.txt'), ($checksums -join [char]10) + [char]10, [Text.Encoding]::ASCII)
+          @{version='${{ steps.metadata.outputs.version }}';sourceCommit=$env:GITHUB_SHA;branch=$env:GITHUB_REF_NAME;runId=$env:GITHUB_RUN_ID;unsigned=$true} | ConvertTo-Json | Set-Content windows/dist/build-info.json -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoTalk-Obsidian-Bridge-Windows-${{ steps.metadata.outputs.version }}
+          if-no-files-found: error
+          path: |
+            windows/dist/*.exe
+            windows/dist/SHA256SUMS.txt
+            windows/dist/build-info.json
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: MemoTalk-Obsidian-Bridge-Windows-${{ needs.build.outputs.version }}
+          path: preview-assets
+      - name: Verify downloaded executables
+        working-directory: preview-assets
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish a new prerelease without changing existing downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          tag="obsidian-bridge-${VERSION}-${GITHUB_RUN_ID}"
+          gh release create "$tag" preview-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "MemoTalk ${VERSION} - Windows Obsidian bridge preview" \
+            --prerelease --latest=false \
+            --notes-file docs/OBSIDIAN-BRIDGE-PREVIEW.md

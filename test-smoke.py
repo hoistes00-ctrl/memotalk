@@ -2,6 +2,9 @@ from playwright.sync_api import sync_playwright
 from pathlib import Path
 root=Path(__file__).parent/'shared'
 html=(root/'index.html').read_text().replace('<script src="platform-bridge.js"></script>', '<script>'+(root/'platform-bridge.js').read_text()+'</script>')
+html=html.replace('<script src="mirror-engine.js"></script>', '<script>'+(root/'mirror-engine.js').read_text()+'</script>')
+for name in ['peer-sync-engine.js','peer-sync-client.js']:
+ html=html.replace('<script src="'+name+'"></script>', '<script>'+(root/name).read_text()+'</script>')
 MOCK=r'''
 (() => {
   const tree = new Map([['',{kind:'directory'}]]);
@@ -59,6 +62,8 @@ try:
   info=page.evaluate('''() => [...window.__testTree.keys()]''')
   assert any(k.endswith('.md') for k in info), info
   assert 'manifest.json' in info, info
+  page.wait_for_function('window.__testTree.has(".memotalk-file-index.json")',timeout=10000)
+  assert page.evaluate('window.__testTree.has("memotalk-sync-state.json")')
   print('SMOKE OK: 메모 전송/입력창 초기화/네이티브 폴더 Markdown 생성')
   print('Files:',info[:12])
   print('Page errors:',errors)
