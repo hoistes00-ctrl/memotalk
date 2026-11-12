@@ -45,6 +45,33 @@ def main():
             def sharing(page):
                 page.get_by_role('button', name='파일 저장', exact=True).click()
 
+            # Regression: restored legacy Android folder + Android-first join of an empty group.
+            # An existing journal must never be replaced, even after backup-import style edits/reload.
+            journal = temporary / 'android' / '.memotalk-file-journal.json'
+            original_journal = b'{"preserve":"previous incomplete export"}'
+            journal.write_bytes(original_journal)
+            phone.evaluate("""async()=>{
+                await window.showDirectoryPicker();
+                await MemoTalkFS.put({linkId:'legacy-regression'});
+                localStorage.setItem('memotalk.fileMirror.auto','true');
+                localStorage.setItem('memotalk.fileMirror.pending','1');
+            }""")
+            phone.reload()
+            phone.wait_for_function('S.roomsLoaded && !!fileMirror.handle')
+            sharing(phone)
+            phone.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
+            phone.get_by_role('button', name='다른 기기의 공유 그룹 참여', exact=True).click()
+            phone.get_by_role('button', name='폴더 선택', exact=True).click()
+            phone.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('Windows에서 먼저')")
+            assert phone.evaluate("localStorage.getItem('memotalk.fileMirror.auto')") == 'false'
+            assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')).relativePath") == 'memotalk-peer-group.json'
+            phone.evaluate("async()=>{await backend.updateMsg('room1','phonememo',{text:'휴대폰 원문'});await runFileMirror(true);}")
+            phone.reload()
+            phone.wait_for_function('S.roomsLoaded')
+            assert journal.read_bytes() == original_journal
+            assert not (temporary / 'android' / '.memotalk-file-index.json').exists()
+            assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.v1')).msgs.room1[0].text") == '휴대폰 원문'
+
             sharing(desktop)
             desktop.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
             desktop.get_by_role('button', name='Windows에서 새 공유 그룹 만들기', exact=True).click()

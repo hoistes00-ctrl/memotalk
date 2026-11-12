@@ -926,7 +926,7 @@ function rawToPortableBackup(raw,ts){
 }
 async function saveExternalVaultCopy(snapshot){
   // Only when a previously verified actual-file mirror is linked; never prompt automatically.
-  if(peerClient?.active||!fileMirror.handle||!fileMirror.auto)return false;
+  if(window.AndroidMemoTalk||peerClient?.active||!fileMirror.handle||!fileMirror.auto)return false;
   if(!await ensureMirrorPermission(fileMirror.handle,false))return false;
   const index=await readMirrorIndex(fileMirror.handle);
   if(!index||index.linkId!==fileMirror.linkId)return false;
@@ -2550,6 +2550,8 @@ async function restoreFileMirrorHandle(){
 }
 function scheduleFileMirror(){
   if(peerClient?.active){peerClient.schedule();return;}
+  // Android SAF supports immutable sharing files, not replacement of the legacy journal/index.
+  if(window.AndroidMemoTalk){clearTimeout(fileMirror.timer);return;}
   if(!fileMirror.handle)return;
   fileMirror.pending=true;
   try{localStorage.setItem('memotalk.fileMirror.pending','1');}catch(_){}
@@ -2609,6 +2611,7 @@ const mirrorLegacyDigest = content => `${content.length}:${zipCrc(content).toStr
 const mirrorDigest = async content => 'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',content)),b=>b.toString(16).padStart(2,'0')).join('');
 async function isMirrorEmpty(handle){for await(const _entry of handle.values())return false;return true;}
 async function linkFileMirror(){
+  if(window.AndroidMemoTalk)return peerClient.menu();
   if(!fileMirrorSupported()){
     return menu('실제 폴더에 저장',[
       {icon:'save',label:'Markdown ZIP 다운로드',run:()=>exportTransfer()},
@@ -2658,6 +2661,15 @@ async function disconnectFileMirror(){
 }
 async function showFileFolderMenu(){
   if(peerClient?.active)return peerClient.menu();
+  if(window.AndroidMemoTalk){
+    const items=[
+      {icon:'folder',label:'Windows ↔ Android 양방향 공유',run:()=>peerClient.menu()},
+      {icon:'load',label:'마지막 저장 오류 진단',run:showMirrorDiagnostics},
+      {icon:'save',label:'Markdown ZIP 다운로드 (갤럭시 호환)',run:()=>exportTransfer()},
+    ];
+    if(fileMirror.handle)items.push({icon:'close',label:'저장 폴더 연결 해제 (파일은 유지)',run:disconnectFileMirror});
+    return menu('Android 파일 저장',items,'자동 폴더 공유는 양방향 공유로 연결하세요. Windows에서 먼저 공유 그룹을 만들고, 휴대폰에서는 내려받은 같은 폴더에 참여합니다. 기존 파일을 교체하는 일반 Markdown 폴더 저장은 Android에서 지원하지 않습니다.');
+  }
   const options=[
     {icon:'folder',label:'Windows ↔ Android 양방향 공유',run:()=>peerClient.menu()},
     {icon:'folder',label:fileMirror.handle?'다른 저장 폴더 선택':'실제 저장 폴더 연결',run:linkFileMirror},
@@ -2724,6 +2736,10 @@ async function reviewIncompleteMirror(source){
 async function runFileMirror(interactive=false){
   if(peerClient?.active){if(interactive)await peerClient.run();return;}
   clearTimeout(fileMirror.timer);
+  if(window.AndroidMemoTalk){
+    const message='Android 폴더 자동 공유는 Windows ↔ Android 양방향 공유로 연결하세요. 기존 파일과 내부 메모는 유지됩니다.';
+    fileMirrorStatus('pending',message);if(interactive)toast(message,true);return;
+  }
   const root=fileMirror.handle;
   if(!root){if(interactive)await linkFileMirror();return;}
   if(fileMirror.busy){fileMirror.dirty=true;return;}
@@ -2763,6 +2779,11 @@ peerClient=window.MemoTalkPeerClient.create({
   editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
   ready:()=>S.roomsLoaded,
   applied:()=>{S.gcache=null;scheduleVaultAutoBackup();},
+  pauseLegacy:async()=>{
+    if(fileMirror.busy)throw Object.assign(new Error('기존 파일 저장이 끝난 뒤 공유 연결을 다시 시도하세요.'),{code:'peer_busy'});
+    clearTimeout(fileMirror.timer);fileMirror.auto=false;
+    try{localStorage.setItem('memotalk.fileMirror.auto','false');}catch(_){}
+  },
   remember:async(root,id)=>{clearTimeout(fileMirror.timer);fileMirror.handle=root;fileMirror.linkId=id;fileMirror.pending=false;await mirrorHandleStore('put',{handle:root,linkId:id});},
   disconnect:disconnectFileMirror
 });
