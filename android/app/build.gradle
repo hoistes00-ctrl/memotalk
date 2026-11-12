@@ -15,8 +15,8 @@ android {
         applicationId 'kr.memotalk.app'
         minSdk 26
         targetSdk 35
-        versionCode 21
-        versionName '17.1.0-sharing.3'
+        versionCode 22
+        versionName '17.1.0-sharing.4'
         manifestPlaceholders = [applicationLabel:'메모톡']
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
@@ -37,8 +37,8 @@ android {
         }
         sharingPreview {
             initWith debug
-            applicationIdSuffix '.sharingpreview3'
-            manifestPlaceholders = [applicationLabel:'메모톡 공유 시험판 3']
+            applicationIdSuffix '.sharingpreview4'
+            manifestPlaceholders = [applicationLabel:'메모톡 공유 시험판 4']
             matchingFallbacks = ['debug']
             signingConfig canSignRelease ? signingConfigs.release : signingConfigs.debug
         }

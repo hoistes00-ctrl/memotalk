@@ -66,6 +66,24 @@ def main():
             phone.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('이 기기에서 새 공유 그룹')")
             assert phone.evaluate("localStorage.getItem('memotalk.fileMirror.auto')") == 'false'
             assert phone.evaluate("JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')).relativePath") == 'memotalk-peer-group.json'
+            # Error notifications also expire; settings apply live and survive restart.
+            phone.locator('.toast').wait_for(state='detached', timeout=5000)
+            phone.locator('#btn-drag-settings').click()
+            assert phone.locator('#number-toast').input_value() == '2500'
+            phone.locator('#number-toast').fill('500')
+            phone.locator('#number-toastFade').fill('0')
+            assert phone.locator('#value-toast').inner_text() == '500 ms'
+            phone.locator('#close-controls').click()
+            phone.reload()
+            phone.locator('.room[data-id=room1]').wait_for()
+            phone.locator('#btn-drag-settings').click()
+            assert phone.locator('#number-toast').input_value() == '500'
+            assert phone.locator('#number-toastFade').input_value() == '0'
+            phone.locator('[data-reset="toast"]').click()
+            phone.locator('[data-reset="toastFade"]').click()
+            assert phone.locator('#number-toast').input_value() == '2500'
+            assert phone.locator('#number-toastFade').input_value() == '250'
+            phone.locator('#close-controls').click()
             backup = {'app': 'memotalk', 'version': 2, 'rooms': [
                 {'name': '백업 복원 회귀 시험', 'msgs': [{'ts': 1, 'text': '백업 원문 보존'}]}]}
             phone.locator('#file-backup').set_input_files({

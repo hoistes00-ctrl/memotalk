@@ -283,7 +283,8 @@ body{position:relative;margin:0}
 .viewer button svg{width:22px;height:22px}
 
 /* toast */
-.toast{position:fixed;left:50%;bottom:calc(96px + var(--memo-safe-bottom));transform:translateX(-50%);z-index:60;background:var(--ink);color:var(--surface);font-size:14px;padding:10px 16px;border-radius:12px;max-width:calc(100% - 32px);width:max-content;text-align:center;box-shadow:var(--shadow);animation:fade var(--fade-duration)}
+.toast{position:fixed;left:50%;bottom:calc(96px + var(--memo-safe-bottom));transform:translateX(-50%);z-index:60;background:var(--ink);color:var(--surface);font-size:14px;padding:10px 16px;border-radius:12px;max-width:calc(100% - 32px);width:max-content;text-align:center;box-shadow:var(--shadow);animation:fade var(--fade-duration);transition:opacity var(--toast-fade-duration,var(--fade-duration)) ease}
+.toast.toast-out{opacity:0;pointer-events:none}
 
 
 /* Local Markdown folder mirroring (desktop-capable browsers). */
@@ -359,7 +360,7 @@ body{position:relative;margin:0}
 .tuning-row{padding:8px 4px;border-bottom:1px solid var(--line)}
 .tuning-row label{display:flex;justify-content:space-between;gap:8px;font-size:13px}
 .tuning-row output{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink-2)}
-.tuning-row>div{display:flex;gap:10px;align-items:center}.tuning-row input{width:100%;accent-color:var(--ink)}
+.tuning-row>div{display:flex;gap:10px;align-items:center}.tuning-row input{width:100%;accent-color:var(--ink)}.tuning-row input[type=range]{min-width:0;flex:1}.tuning-row input[type=number]{width:7em;min-width:0}
 .tuning-row button{width:36px;height:36px;font-size:22px;flex-shrink:0;background:var(--surface-2);border-radius:8px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .create-tools{display:flex;gap:8px;padding-block:0 10px;flex-shrink:0}
@@ -497,8 +498,10 @@ const FOLDER_HOVER_DELAY = 700;
 const PREVIEW_GAP = 22;
 // Custom default 450 ms; higher suppresses delayed clicks for longer after a gesture.
 const CLICK_GUARD_DELAY = 450;
-// Original app default 2600 ms; higher leaves ordinary notifications visible longer.
-const TOAST_DELAY = 2600;
+// Custom default 2500 ms (no library default); higher leaves all notifications visible longer.
+const TOAST_DELAY = 2500;
+// Custom default 250 ms (no library default); higher fades notifications out more slowly.
+const TOAST_FADE_DURATION = 250;
 // Original app default 30 ms; higher delays focusing newly opened input fields.
 const FOCUS_DELAY = 30;
 // Original app defaults 180/150 ms; higher delays search updates while typing.
@@ -615,14 +618,21 @@ async function inlineFit(src, budget){
 }
 
 /* ---------- toast ---------- */
-let toastEl = null, toastTimer = null;
-function toast(text, sticky=false){
-  clearTimeout(toastTimer);
+let toastEl = null, toastTimer = null, toastRemoveTimer = null;
+// Legacy callers may pass true for progress/errors; all notifications now expire.
+function toast(text, _legacySticky=false){
+  clearTimeout(toastTimer);clearTimeout(toastRemoveTimer);
   if (!toastEl){ toastEl = document.createElement('div'); toastEl.className = 'toast'; toastEl.setAttribute('role','status'); document.body.appendChild(toastEl); }
+  toastEl.classList.remove('toast-out');
   toastEl.textContent = text;
-  if (!sticky) toastTimer = setTimeout(hideToast, tuning.toast);
+  toastTimer = setTimeout(hideToast, tuning.toast);
 }
-function hideToast(){ clearTimeout(toastTimer); toastEl?.remove(); toastEl = null; }
+function hideToast(){
+  clearTimeout(toastTimer);clearTimeout(toastRemoveTimer);
+  if(!toastEl)return;
+  const closing=toastEl;closing.classList.add('toast-out');
+  toastRemoveTimer=setTimeout(()=>{if(toastEl===closing){closing.remove();toastEl=null;}},tuning.toastFade);
+}
 
 /* ---------- sheets ---------- */
 let sheetOpen = null;
@@ -1391,7 +1401,8 @@ const tuningSchema = {
   hover: ['접힌 폴더 자동 열기 대기', FOLDER_HOVER_DELAY, 0, 3000, 10, 'ms'],
   gap: ['드래그 미리보기 간격', PREVIEW_GAP, 0, 100, 1, 'px'],
   clickGuard: ['드래그 후 클릭 방지', CLICK_GUARD_DELAY, 0, 2000, 10, 'ms'],
-  toast: ['알림 표시 시간', TOAST_DELAY, 0, 15000, 100, 'ms'],
+  toast: ['알림 표시 시간', TOAST_DELAY, 0, FILE_MIRROR_DELAY_MAX, FILE_MIRROR_DELAY_STEP, 'ms'],
+  toastFade: ['알림 사라지는 시간', TOAST_FADE_DURATION, 0, FILE_MIRROR_DELAY_MAX, FILE_MIRROR_DELAY_STEP, 'ms'],
   focus: ['입력창 초점 대기', FOCUS_DELAY, 0, 1000, 10, 'ms'],
   globalSearch: ['전체 검색 대기', GLOBAL_SEARCH_DELAY, 0, 2000, 10, 'ms'],
   roomSearch: ['방 안 검색 대기', ROOM_SEARCH_DELAY, 0, 2000, 10, 'ms'],
@@ -1415,20 +1426,28 @@ for (const [name, definition] of Object.entries(tuningSchema)) {
 }
 function applyTuning() {
   for (const name of ['fade', 'sheet', 'flash', 'spin']) document.documentElement.style.setProperty('--' + name + '-duration', tuning[name] + 'ms');
+  document.documentElement.style.setProperty('--toast-fade-duration',tuning.toastFade+'ms');
+  if(toastEl){
+    if(toastEl.classList.contains('toast-out'))hideToast();
+    else{clearTimeout(toastTimer);toastTimer=setTimeout(hideToast,tuning.toast);}
+  }
 }
 applyTuning();
 function openDragSettings() {
   clearDrag();
-  const sheet = openScrim(`<h2>조작 설정</h2><p>값은 즉시 적용되고 이 브라우저에 저장됩니다. 자동 스크롤 속도를 0으로 설정하면 꺼집니다.</p>${Object.entries(tuningSchema).map(([name, definition]) => `<div class="tuning-row"><label for="tune-${name}">${definition[0]} <output id="value-${name}">${tuning[name]} ${definition[5]}</output></label><div><input id="tune-${name}" data-tune="${name}" type="range" min="${definition[2]}" max="${definition[3]}" step="${definition[4]}" value="${tuning[name]}"><button data-reset="${name}" aria-label="${definition[0]} 기본값 복귀">↺</button></div></div>`).join('')}<div class="btns"><button class="ghost" id="reset-controls">전체 기본값</button><button class="ok" id="close-controls">닫기</button></div>`);
+  const sheet = openScrim(`<h2>조작 설정</h2><p>값은 즉시 적용되고 이 브라우저에 저장됩니다. 자동 스크롤 속도를 0으로 설정하면 꺼집니다.</p>${Object.entries(tuningSchema).map(([name, definition]) => `<div class="tuning-row"><label for="tune-${name}">${definition[0]} <output id="value-${name}">${tuning[name]} ${definition[5]}</output></label><div><input id="tune-${name}" data-tune="${name}" type="range" min="${definition[2]}" max="${definition[3]}" step="${definition[4]}" value="${tuning[name]}">${['toast','toastFade'].includes(name)?`<input id="number-${name}" data-tune="${name}" type="number" min="${definition[2]}" max="${definition[3]}" step="${definition[4]}" value="${tuning[name]}" aria-label="${definition[0]} 숫자 입력">`:''}<button data-reset="${name}" aria-label="${definition[0]} 기본값 복귀">↺</button></div></div>`).join('')}<div class="btns"><button class="ghost" id="reset-controls">전체 기본값</button><button class="ok" id="close-controls">닫기</button></div>`);
   const setValue = (name, value, reset) => {
     tuning[name] = value;
-    sheet.querySelector('#tune-' + name).value = value;
+    sheet.querySelectorAll('[data-tune="'+name+'"]').forEach(control=>control.value=value);
     sheet.querySelector('#value-' + name).textContent = value + ' ' + tuningSchema[name][5];
     applyTuning();
     try { reset ? localStorage.removeItem(tuningKey(name)) : localStorage.setItem(tuningKey(name), String(value)); }
     catch (_) { toast('설정은 적용했지만 저장할 공간이 없어 다음 방문에는 유지되지 않아요.'); }
   };
-  sheet.querySelectorAll('[data-tune]').forEach(control => control.oninput = () => setValue(control.dataset.tune, Number(control.value), false));
+  sheet.querySelectorAll('[data-tune]').forEach(control => control.oninput = () => {
+    const name=control.dataset.tune,value=Number(control.value),definition=tuningSchema[name];
+    if(control.value!==''&&Number.isFinite(value)&&value>=definition[2]&&value<=definition[3])setValue(name,value,false);
+  });
   sheet.querySelectorAll('[data-reset]').forEach(button => button.onclick = () => setValue(button.dataset.reset, tuningSchema[button.dataset.reset][1], true));
   sheet.querySelector('#reset-controls').onclick = () => Object.entries(tuningSchema).forEach(([name, definition]) => setValue(name, definition[1], true));
   sheet.querySelector('#close-controls').onclick = closeSheet;

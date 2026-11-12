@@ -5,14 +5,14 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const {webcrypto}=require('node:crypto');
 
-function fixture({cancel=false,group=null,failWrite=false}={}){
+function fixture({cancel=false,group=null,failWrite=false,listedGroup=false}={}){
   const events=[],storage=new Map([['memotalk.v1','original backup data']]);
   const engine={VERSION:1,GROUP_FILE:'memotalk-peer-group.json',canonical:JSON.stringify,Replica:class{}};
   const context=vm.createContext({module:{exports:{}},TextEncoder,TextDecoder,structuredClone,crypto:webcrypto,
     localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},
     document:{addEventListener(){}},setTimeout:()=>0,clearTimeout(){},
     window:{AndroidMemoTalk:{},async showDirectoryPicker(){events.push('picker');
-      if(cancel)throw Object.assign(Error('cancel'),{name:'AbortError'});return {name:'new Android folder'};}}});
+      if(cancel)throw Object.assign(Error('cancel'),{name:'AbortError'});return {name:'new Android folder',async *values(){if(listedGroup)yield {name:'memotalk-peer-group.json',kind:'file'};}};}}});
   vm.runInContext(fs.readFileSync('shared/peer-sync-client.js','utf8'),context);
   const options={engine,backend:()=>({mode:'local',peerSnapshot(){},peerCommit(){}}),ask:async()=>true,
     pauseLegacy:async()=>{events.push('pause');storage.set('memotalk.fileMirror.auto','false');},
@@ -73,4 +73,15 @@ test('failed Android group creation preserves backup and does not activate',asyn
   assert.equal(f.client.active,false);assert.equal(f.storage.has('memotalk.peer.config'),false);
   assert.equal(f.storage.get('memotalk.v1'),'original backup data');
   assert.equal(JSON.parse(f.storage.get('memotalk.fileMirror.lastError')).code,'ENOSPC');
+});
+
+test('file listed but unavailable is not falsely diagnosed as absent',async()=>{
+  const f=fixture({listedGroup:true});await f.client.connect(false);
+  const detail=JSON.parse(f.storage.get('memotalk.fileMirror.lastError'));
+  assert.equal(detail.code,'peer_group_read_unavailable');
+  assert.equal(detail.selectedFolder,'new Android folder');
+  assert.equal(detail.folderCheck.expectedFileListed,true);
+  assert.equal(detail.folderCheck.listSucceeded,true);
+  assert.equal(f.client.active,false);assert.equal(f.events.includes('write'),false);
+  assert.equal(f.storage.get('memotalk.v1'),'original backup data');
 });

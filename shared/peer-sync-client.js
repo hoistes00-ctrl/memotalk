@@ -206,18 +206,30 @@
         const existing=await read(P.GROUP_FILE);
         let group=existing?JSON.parse(decoder.decode(existing)):null;
         if(!group){
-          if(!createGroup)throw error('peer_group_not_downloaded',P.GROUP_FILE);
+          if(!createGroup){
+            const folderCheck={selectedFolder:root.name,expectedFileListed:false,sharingDirectoryListed:false};
+            try{
+              for await(const entry of root.values()){
+                if(entry.name===P.GROUP_FILE)folderCheck.expectedFileListed=true;
+                if(entry.name===P.DIRECTORY&&entry.kind==='directory')folderCheck.sharingDirectoryListed=true;
+              }
+              folderCheck.listSucceeded=true;
+            }catch(listError){folderCheck.listSucceeded=false;folderCheck.listErrorCode=listError.code||listError.name;}
+            throw Object.assign(error(folderCheck.expectedFileListed?'peer_group_read_unavailable':'peer_group_not_downloaded',P.GROUP_FILE),{folderCheck});
+          }
           group={format:'memotalk-peer-group',version:P.VERSION,id:crypto.randomUUID()};
           await transport.put(P.GROUP_FILE,encoder.encode(P.canonical(group)));
         }
         await activate(root,group);
       }catch(e){
         if(e.name==='AbortError')return;
-        client.lastError={code:e.code||e.message,operation:e.operation||'peer-connect',relativePath:e.relativePath||'',message:e.message,at:new Date().toISOString()};
+        client.lastError={code:e.code||e.message,operation:e.operation||'peer-connect',relativePath:e.relativePath||'',selectedFolder:client.root?.name||'',folderCheck:e.folderCheck,errno:e.errno,syscall:e.syscall,nativeMessage:e.nativeMessage,message:e.message,at:new Date().toISOString()};
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
         const message=e.code==='peer_group_not_downloaded'
           ? '공유 그룹 파일이 없어요. 처음 시작한다면 이 기기에서 새 공유 그룹 만들기를 선택하세요. 다른 기기에서 이미 만들었다면 Obsidian Sync로 같은 폴더가 내려올 때까지 기다리세요. 내부 메모와 기존 파일은 유지됩니다.'
-          : '공유 연결 실패 · '+(e.code||e.message);
+          : e.code==='peer_group_read_unavailable'
+            ? '그룹 파일이 선택한 폴더 목록에는 있지만 읽을 수 없어요. 공유 오류 진단에서 선택한 폴더와 읽기 상태를 확인하세요. 기존 파일은 유지됩니다.'
+            : '공유 연결 실패 · '+(e.code||e.message);
         options.status('error',message);options.toast(message,true);
       }
     }
@@ -270,6 +282,7 @@
       ]:[
         {icon:'folder',label:'이 기기에서 새 공유 그룹 만들기',run:()=>connect(true)},
         {icon:'folder',label:'다른 기기의 공유 그룹 참여',run:()=>connect(false)},
+        {icon:'load',label:'공유 오류 진단',run:diagnostics},
         {icon:'edit',label:'공유 확인·반영 간격 조절',run:showSettings}
       ];
       options.menu('Windows ↔ Android 양방향 공유',items,'두 기기에서 같은 Obsidian vault 하위 폴더를 선택하세요. 메모톡 앱 사이의 변경을 주고받습니다. 충돌 시 두 원문을 보존합니다. Obsidian에서 Markdown을 직접 수정한 내용의 자동 가져오기는 별도 기능입니다.');
