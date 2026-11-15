@@ -28,7 +28,13 @@
     if (response.error) p.reject(typeof response.error==='object' ? Object.assign(new Error(response.error.message),response.error) : new Error(response.error));
     else p.resolve(response.result);
   };
+  const inFlight=new Map();
+  let operationSequence=0;
   const ask = async (command, args = {}) => {
+    const operationId=++operationSequence;
+    // Keep only operation metadata. Never retain memo bytes, keys, tokens or leases.
+    inFlight.set(operationId,{command,relativePath:Array.isArray(args.path)?args.path.join('/'):'',startedAt:new Date().toISOString(),startedMs:Date.now()});
+    try{
     let response;
     try{response=await native.request(command,args);}catch(error){
       if(error.code==='ENOENT'||error.message==='NotFoundError')error.name='NotFoundError';
@@ -41,6 +47,7 @@
       throw error;
     }
     return response?.ok === true ? response.result : response;
+    }finally{inFlight.delete(operationId);}
   };
   function assertName(name) {
     if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\x00-\x1f]/.test(name)) {
@@ -140,6 +147,15 @@
   }
   window.MemoTalkFS = {
     restore,
+    diagnostics(){return {pendingOperations:Array.from(inFlight.values(),({startedMs,...entry})=>({...entry,elapsedMs:Date.now()-startedMs}))};},
+    async readFile(root,path){
+      const parts=String(path).split('/').map(assertName);
+      try{
+        const result=await ask('read',{path:[...root.parts,...parts],...root.context});
+        if(!result||typeof result.base64!=='string')throw notFound();
+        return fromBase64(result.base64);
+      }catch(e){if(e.name==='NotFoundError')return null;throw e;}
+    },
     async beginMirror(root) {
       if(!window.MemoTalkNative&&!root.context.atomicWrites)return;
       const lease=await ask('beginMirror',root.context);

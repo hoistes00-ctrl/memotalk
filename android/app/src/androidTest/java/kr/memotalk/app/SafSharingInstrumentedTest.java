@@ -124,6 +124,14 @@ public class SafSharingInstrumentedTest {
         waitJavaScript("window.__nativeResult!==null");JSONObject result=new JSONObject(js("window.__nativeResult"));
         assertTrue(result.toString(),result.getBoolean("ok"));assertEquals("actual Android WebView",result.getJSONObject("result").getString("text"));assertEquals(64,result.getJSONObject("result").getString("hash").length());
     }
+    @Test public void readingMissingAncestorDoesNotCreateFolders()throws Exception{
+        JSONObject before=(JSONObject)command("stat",args("never-created","child","memo.md"));
+        assertFalse(before.getBoolean("exists"));
+        try{command("read",args("never-created","child","memo.md"));fail("missing read must fail");}
+        catch(Exception expected){assertEquals("NotFoundError",expected.getMessage());}
+        JSONArray list=(JSONArray)command("list",args());
+        for(int i=0;i<list.length();i++)assertNotEquals("never-created",list.getJSONObject(i).getString("name"));
+    }
     @Test public void oldFolderTokenRejected()throws Exception{
         Field field=MainActivity.class.getDeclaredField("folderToken");field.setAccessible(true);field.set(activity,UUID.randomUUID().toString());
         try{command("stat",args());fail("old token accepted");}catch(VerifiedDocumentWriter.Failure expected){assertEquals("ESTALE",expected.code);}

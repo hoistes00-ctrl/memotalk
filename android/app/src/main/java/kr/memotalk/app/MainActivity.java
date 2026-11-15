@@ -331,7 +331,11 @@ public class MainActivity extends Activity {
             String name=segments[i];
             Child child=findChild(dir,name);
             if(child==null && (i<segments.length-1 || createDirectory || createFile)) {
-                if(i<segments.length-1)throw new Exception("상위 폴더 없음");
+                if(i<segments.length-1) {
+                    // A read/stat of a missing descendant must not create folders or report EIO.
+                    if(!createFile && !createDirectory)return null;
+                    throw new FileNotFoundException("상위 폴더 없음");
+                }
                 String mime=createDirectory ? DocumentsContract.Document.MIME_TYPE_DIR : "application/octet-stream";
                 Uri created=DocumentsContract.createDocument(getContentResolver(),dir,mime,name);
                 if(created==null)throw new Exception("파일 생성에 실패했습니다");

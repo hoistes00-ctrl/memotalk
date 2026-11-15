@@ -6,6 +6,9 @@ def releasePassword = System.getenv('MEMOTALK_KEYSTORE_PASSWORD')
 def releaseAlias = System.getenv('MEMOTALK_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('MEMOTALK_KEY_PASSWORD')
 def canSignRelease = releaseKeystore && releasePassword && releaseAlias && releaseKeyPassword
+// Opt-in isolated install for owners whose previous ephemeral signing key is unavailable.
+// The existing preview application and its data remain installed and unchanged.
+def migrationPreview = providers.gradleProperty('memotalkMigrationPreview').orElse('false').get().toBoolean()
 
 android {
     namespace 'kr.memotalk.app'
@@ -15,8 +18,8 @@ android {
         applicationId 'kr.memotalk.app'
         minSdk 26
         targetSdk 35
-        versionCode 23
-        versionName '17.1.0-sharing.5'
+        versionCode 25
+        versionName '17.1.1-sharing.5-syncfix.2'
         manifestPlaceholders = [applicationLabel:'메모톡']
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
@@ -37,8 +40,8 @@ android {
         }
         sharingPreview {
             initWith debug
-            applicationIdSuffix '.sharingpreview5'
-            manifestPlaceholders = [applicationLabel:'메모톡 공유 시험판 5']
+            applicationIdSuffix migrationPreview ? '.sharingpreview5.syncfix' : '.sharingpreview5'
+            manifestPlaceholders = [applicationLabel: migrationPreview ? '메모톡 동기화 수정판' : '메모톡 공유 시험판 5']
             matchingFallbacks = ['debug']
             signingConfig canSignRelease ? signingConfigs.release : signingConfigs.debug
         }

@@ -19,7 +19,7 @@ function fixture({cancel=false,group=null,failWrite=false,listedGroup=false,tick
     permission:async()=>true,read:async()=>{events.push('read');return group?new TextEncoder().encode(JSON.stringify(group)):null;},
     write:async(root,path,data)=>{events.push('write');if(failWrite)throw Object.assign(Error('disk full'),{code:'ENOSPC'});assert.equal(group,null);group=JSON.parse(new TextDecoder().decode(data));},remember:async()=>events.push('remember'),
     status:(state,message)=>events.push({state,message}),toast:message=>events.push({toast:message}),esc:String,
-    menu:(title,items)=>events.push({items}),openScrim:content=>events.push({sheet:content})};
+    menu:(title,items)=>events.push({items}),openScrim:content=>{events.push({sheet:content});return {querySelector:()=>({})};}};
   return {client:context.module.exports.create(options),events,storage,setTickError:value=>{tickError=value;}};
 }
 test('Android-first missing group stops legacy autosave before picker and preserves backup',async()=>{

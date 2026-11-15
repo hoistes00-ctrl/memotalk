@@ -40,6 +40,7 @@
       if(value!==null&&Number.isFinite(Number(value)))settings[key]=Math.max(TIMER_MIN,Math.min(TIMER_MAX,Number(value)));
     }
     const client={active:false,busy:false,root:null,groupId:null,replica:null,timer:null,last:null};
+    function progress(value){client.progress={...value,at:value.at||new Date().toISOString()};}
     function reportStatus(state,message){
       client.status={state,message,at:new Date().toISOString()};options.status(state,message);
     }
@@ -50,7 +51,7 @@
     };
     const load=()=>stateStore(client.groupId);
     const save=value=>stateStore(client.groupId,value);
-    const read=path=>options.read(client.root,path);
+    const read=path=>window.MemoTalkFS?.readFile?window.MemoTalkFS.readFile(client.root,path):options.read(client.root,path);
     const transport={
       async read(path){return read(path);},
       async put(path,data){
@@ -164,16 +165,20 @@
       if(!client.active||client.busy)return;
       if(!options.ready()){schedule(settings.poll);return;}
       client.busy=true;client.lastAttemptAt=new Date().toISOString();
+      progress({stage:'waiting-for-cycle-lock'});
       const root=client.root;
       const task=async()=>{
+        progress({stage:'acquire-folder-lease'});
         await window.MemoTalkFS?.beginMirror?.(root);
         try{
+          progress({stage:'read-group-file'});
           const groupBytes=await read(P.GROUP_FILE),group=groupBytes&&JSON.parse(decoder.decode(groupBytes));
           if(group?.id!==client.groupId||group.format!=='memotalk-peer-group'||group.version!==P.VERSION)throw error('peer_group_changed',P.GROUP_FILE);
           const result=await client.replica.tick();client.last=result;client.lastCycleAt=new Date().toISOString();client.currentError=null;
           const waiting=result.pending+(result.blocked?.length||0);
-          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${waiting?' · 수신 미완료 '+waiting+'건':''} · 원격 전송 상태는 Obsidian 확인`);
-        }finally{await window.MemoTalkFS?.endMirror?.(root);}
+          const foreign=Object.values(result.foreignGroups||{}).reduce((sum,count)=>sum+count,0);
+          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${waiting?' · 수신 미완료 '+waiting+'건':''}${foreign?' · 다른 그룹 원본 보존 '+foreign+'개 (자동 병합 안 함)':''} · 원격 전송 상태는 Obsidian 확인`);
+        }finally{progress({stage:'release-folder-lease'});await window.MemoTalkFS?.endMirror?.(root);}
       };
       try{
         if(navigator.locks?.request)await navigator.locks.request('memotalk-peer-'+client.groupId,{ifAvailable:true},async lock=>{if(lock)await task();});
@@ -185,14 +190,14 @@
         try{localStorage.setItem('memotalk.fileMirror.lastError',JSON.stringify(client.lastError));}catch(_){}
         const pending=['peer_edit_in_progress','peer_attachment_pending','peer_stale','peer_busy','EBUSY'].includes(client.lastError.code);
         reportStatus(pending?'pending':'error',`공유 ${pending?'대기':'중단'} · ${client.lastError.code} · ${client.lastError.relativePath}`);
-      }finally{client.busy=false;schedule(settings.poll);}
+      }finally{client.busy=false;progress({stage:client.currentError?'cycle-error':'cycle-idle'});schedule(settings.poll);}
     }
     async function activate(root,group){
       getBackend();
       if(group?.format!=='memotalk-peer-group'||group.version!==P.VERSION||!/^[a-zA-Z0-9_-]{1,256}$/.test(group.id))throw error('peer_group');
       let actor=localStorage.getItem(ACTOR);if(!actor){actor=crypto.randomUUID();localStorage.setItem(ACTOR,actor);}
       client.root=root;client.groupId=group.id;client.last=null;client.lastCycleAt=null;client.currentError=null;
-      client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport});
+      client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport,onProgress:progress});
       localStorage.setItem(CONFIG,JSON.stringify({groupId:group.id,enabled:true}));
       await options.remember(root,group.id);client.active=true;
       reportStatus('pending',folderLabel(root)+' · 양방향 공유 연결됨');schedule();
@@ -274,12 +279,53 @@
         try{if(navigator.locks?.request)await navigator.locks.request('memotalk-peer-'+client.groupId,()=>client.replica.resolve(P.entityKey(op.entity),op.id));else await client.replica.resolve(P.entityKey(op.entity),op.id);schedule(TIMER_MIN);}catch(e){options.toast('복원 대기 · '+(e.code||e.message),true);}
       });
     }
+    // Explicit recovery joins an already-present group; it never invents a group ID
+    // or rewrites/deletes immutable history. The previous replica stays in IndexedDB.
+    async function joinExistingGroup(groupId){
+      if(!client.active||client.busy||groupId===client.groupId)throw error('peer_busy');
+      const root=client.root,previousId=client.groupId;
+      await run();
+      if(client.busy||client.currentError||client.last?.pending||client.last?.blocked?.length)throw error('peer_join_not_ready');
+      const before=await read(P.GROUP_FILE),previous=before&&JSON.parse(decoder.decode(before));
+      if(previous?.id!==previousId)throw error('peer_group_changed');
+      let found=false;
+      for(const name of await transport.list(P.DIRECTORY+'/operations')){
+        if(!/^[a-f0-9]{64}\.json$/.test(name))continue;
+        const data=await read(P.DIRECTORY+'/operations/'+name);
+        const op=JSON.parse(decoder.decode(data));
+        if(op.groupId!==groupId)continue;
+        await P.validate(op,groupId);
+        if(name!==op.id+'.json')throw error('peer_integrity',name);
+        found=true;
+      }
+      if(!found)throw error('peer_existing_group_missing');
+      const source=await load();
+      if(!source||source.outbox.length||source.pending)throw error('peer_join_not_ready');
+      const backupKey='join-backup-'+crypto.randomUUID();
+      await stateStore(backupKey,{from:previousId,to:groupId,manifest:previous,state:source,localSnapshot:getBackend().peerSnapshot(),at:new Date().toISOString()});
+      client.active=false;clearTimeout(client.timer);
+      const next=encoder.encode(P.canonical({...previous,id:groupId}));
+      try{
+        if(!same(await read(P.GROUP_FILE),before))throw error('peer_group_changed');
+        await options.write(root,P.GROUP_FILE,next,before);
+        if(!same(await read(P.GROUP_FILE),next))throw error('peer_write_verify');
+        await activate(root,{...previous,id:groupId});
+      }catch(e){
+        // Roll back only our own manifest bytes; never overwrite a third-party edit.
+        if(same(await read(P.GROUP_FILE),next))await options.write(root,P.GROUP_FILE,before,next);
+        if(same(await read(P.GROUP_FILE),before))await activate(root,previous);
+        throw e;
+      }
+      await run();
+      return {from:previousId,to:groupId,backupKey,result:client.last,currentError:client.currentError};
+    }
     function diagnostics(){
       let record=client.lastError;try{record ||= JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')||'null');}catch(_){}
       let localData=null;try{const data=getBackend().peerSnapshot().data;localData={rooms:Object.values(data.rooms).filter(r=>!r.peerConflict&&r.kind!=='folder'&&r.kind!=='archive').length,memos:Object.values(data.msgs).flat().filter(m=>!m.peerConflict).length};}catch(_){}
       const blockedReasons={};for(const entry of client.last?.blocked||[])blockedReasons[entry.code]=(blockedReasons[entry.code]||0)+1;
-      const current={active:client.active,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,blockedReasons};
-      options.openScrim('<h2>공유 오류 진단</h2><p>현재 상태와 과거 오류는 다릅니다. 주기 검사 완료는 원격 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><h3>현재 연결·반영 상태</h3><pre data-peer-current style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(JSON.stringify(current,null,2))+'</pre><h3>과거 마지막 오류 기록</h3><pre data-peer-history style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 과거 오류 없음')+'</pre>');
+      const current={active:client.active,busy:client.busy,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,progress:client.progress||null,nativeRequests:window.MemoTalkFS?.diagnostics?.()||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,blockedReasons,foreignGroups:client.last?.foreignGroups||{}};
+      const sheet=options.openScrim('<h2>공유 오류 진단</h2><p>현재 상태와 과거 오류는 다릅니다. 주기 검사 완료는 원격 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><button data-peer-refresh>현재 상태 새로 고침</button><h3>현재 연결·반영 상태</h3><pre data-peer-current style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(JSON.stringify(current,null,2))+'</pre><h3>과거 마지막 오류 기록</h3><pre data-peer-history style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 과거 오류 없음')+'</pre>');
+      sheet.querySelector('[data-peer-refresh]').onclick=()=>{options.closeSheet();diagnostics();};
     }
     function menu(){
       const items=client.active?[
@@ -294,9 +340,17 @@
         {icon:'load',label:'공유 오류 진단',run:diagnostics},
         {icon:'edit',label:'공유 확인·반영 간격 조절',run:showSettings}
       ];
+      if(client.active)for(const [groupId,count]of Object.entries(client.last?.foreignGroups||{}))items.push({
+        icon:'folder',label:'기존 그룹에 합류 · '+groupId+' ('+count+'개)',
+        run:async()=>{
+          if(!await options.ask({title:'이 기존 그룹에 합류할까요?',body:'새 그룹을 만들지 않습니다. 합류 전 PC 상태와 모든 원본 이력을 보존하고 현재 메모를 이 그룹에 추가합니다. 대상: '+groupId,ok:'원본 보존 후 합류'}))return;
+          try{await joinExistingGroup(groupId);options.toast('기존 그룹에 합류했습니다. 원격 전송은 Obsidian에서 확인하세요.');}
+          catch(e){options.toast('그룹 합류 대기 · '+(e.code||e.message),true);}
+        }
+      });
       options.menu('Windows ↔ Android 양방향 공유',items,'두 기기에서 같은 Obsidian vault 하위 폴더를 선택하세요. 메모톡 앱 사이의 변경을 주고받습니다. 충돌 시 두 원문을 보존합니다. Obsidian에서 Markdown을 직접 수정한 내용의 자동 가져오기는 별도 기능입니다.');
     }
-    Object.assign(client,{schedule,run,restore,menu,connect,disconnect,showHistory});
+    Object.assign(client,{schedule,run,restore,menu,connect,disconnect,showHistory,joinExistingGroup});
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')schedule(TIMER_MIN);});
     return client;
   }

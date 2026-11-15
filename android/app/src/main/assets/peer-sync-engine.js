@@ -143,15 +143,21 @@
   }
   function sameMap(a,b){return canonical(a)===canonical(b);}
   class Replica{
-    constructor({groupId,actor,load,save,capture,apply,transport}){
-      Object.assign(this,{groupId,actor,load,save,capture,apply,transport});this.running=false;
+    constructor({groupId,actor,load,save,capture,apply,transport,onProgress}){
+      Object.assign(this,{groupId,actor,load,save,capture,apply,transport,onProgress});this.running=false;
+    }
+    progress(stage,detail={}){
+      // Diagnostics must never change whether a revision is committed or published.
+      try{this.onProgress?.({stage,...detail,at:new Date().toISOString()});}catch(_){}
     }
     async tick(){
       if(this.running)throw fail('peer_busy');this.running=true;
       try{
+        this.progress('load-local-history');
         const loaded=await this.load();
         const state=loaded?structuredClone(loaded):newState(this.groupId,this.actor);
         if(state.groupId!==this.groupId||state.actor!==this.actor)throw fail('peer_identity');
+        this.progress('capture-local-notes');
         const snapshot=await this.capture(),current=normalize(snapshot.records);
         const hashes=await fingerprints(current);
         if(state.pending){
@@ -164,28 +170,54 @@
         await harvest(state,current);
         for(const [assetPath,data]of Object.entries(snapshot.assets||{}))state.assets[assetPath]=data;
         // Commit local edits/outbox before any network/filesystem publication.
+        this.progress('save-outbox',{revisions:Object.keys(state.operations).length,outbox:state.outbox.length});
         await this.save(state);
         for(const [assetPath,data]of Object.entries(state.assets)){
+          this.progress('publish-attachment',{path:assetPath});
           await this.transport.put(assetPath,data);delete state.assets[assetPath];
         }
+        let published=0;
         for(const id of state.outbox){
+          this.progress('publish-operation',{path:DIRECTORY+'/operations/'+id+'.json',completed:published,total:state.outbox.length});
           await this.transport.put(DIRECTORY+'/operations/'+id+'.json',encoder.encode(canonical(state.operations[id])));
+          published++;
         }
         state.outbox=[];
         // A crash can replay already-published content-addressed files safely. One
         // durable batch receipt avoids rewriting the entire ledger for each memo.
         await this.save(state);
-        const blocked=[];
-        for(const name of await this.transport.list(DIRECTORY+'/operations')){
+        const blocked=[],foreignGroups={};
+        // Verified content-addressed foreign revisions are immutable, just like
+        // revisions already in state.operations. Keep their group receipt so a
+        // preserved old group does not trigger hundreds of SAF reads every tick.
+        state.foreignOperations||={};
+        this.progress('list-operations');
+        const names=await this.transport.list(DIRECTORY+'/operations');
+        let examined=0;
+        for(const name of names){
+          examined++;
           if(!name.endsWith('.json'))continue;
           const match=/^([a-f0-9]{64})\.json$/.exec(name);
           if(match&&state.operations[match[1]])continue;
+          const knownGroup=match&&state.foreignOperations[match[1]];
+          if(typeof knownGroup==='string'&&knownGroup!==this.groupId){
+            foreignGroups[knownGroup]=(foreignGroups[knownGroup]||0)+1;
+            continue;
+          }
           const filename=DIRECTORY+'/operations/'+name;
           try{
+            this.progress('read-operation',{path:filename,examined,total:names.length});
             const data=await this.transport.read(filename);
             if(!data||data.length>MAX_OPERATION_BYTES)throw fail('peer_partial',filename);
             const op=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));
-            await validate(op,this.groupId);
+            // Validate foreign history before reporting it. Never merge groups implicitly.
+            await validate(op,op.groupId);
+            if(match&&match[1]!==op.id)throw fail('peer_integrity',filename);
+            if(op.groupId!==this.groupId){
+              foreignGroups[op.groupId]=(foreignGroups[op.groupId]||0)+1;
+              if(match)state.foreignOperations[op.id]=op.groupId;
+              continue;
+            }
             if(state.operations[op.id]&&canonical(state.operations[op.id])!==canonical(op))throw fail('peer_integrity',filename);
             state.operations[op.id]=op;
           }catch(error){
@@ -193,10 +225,11 @@
             blocked.push({path:filename,code:error.code||'peer_partial'});
           }
         }
+        this.progress('project-history',{revisions:Object.keys(state.operations).length});
         const view=project(state);
         await this.save(state);
         // Missing revisions can be delayed by transport. Do not claim complete sync.
-        if(view.pending.length)return {pending:view.pending.length,blocked,conflicts:view.conflicts.length,applied:false};
+        if(view.pending.length)return {pending:view.pending.length,blocked,foreignGroups,conflicts:view.conflicts.length,applied:false};
         const desired=await fingerprints(view.records);
         const presentation=await hash(view.heads);
         const needsApply=!sameMap(hashes,desired)||snapshot.presentation!==presentation;
@@ -204,11 +237,14 @@
           state.pending={baseline:desired,baseHeads:view.heads,presentation};
           await this.save(state);
           // Adapter must check the capture token and commit all application data atomically.
+          this.progress('apply-received-notes',{records:Object.keys(view.records).length});
           await this.apply(snapshot.token,view.records,view.conflicts,presentation);
         }
         state.baseline=desired;state.baseHeads=view.heads;state.pending=null;
+        this.progress('save-applied-history');
         await this.save(state);
-        return {pending:0,blocked,conflicts:view.conflicts.length,applied:needsApply,revisions:Object.keys(state.operations).length};
+        this.progress('cycle-complete',{revisions:Object.keys(state.operations).length});
+        return {pending:0,blocked,foreignGroups,conflicts:view.conflicts.length,applied:needsApply,revisions:Object.keys(state.operations).length};
       }finally{this.running=false;}
     }
     async resolve(key,id){
