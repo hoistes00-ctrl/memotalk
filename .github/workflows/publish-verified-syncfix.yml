@@ -1,0 +1,48 @@
+name: Publish verified syncfix downloads
+
+on:
+  push:
+    branches: ['release/syncfix-downloads-20261115']
+    paths:
+      - '.github/workflows/publish-verified-syncfix.yml'
+      - '.github/scripts/prepare-verified-syncfix.py'
+      - 'release-assets/syncfix/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: verified-syncfix-downloads
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Fetch the exact successful Windows artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/$GITHUB_REPOSITORY/actions/runs/43670538409 > source-run.json
+          gh api repos/$GITHUB_REPOSITORY/actions/artifacts/14144383607 > source-artifact.json
+          gh api repos/$GITHUB_REPOSITORY/actions/artifacts/14144383607/zip > windows-artifact.zip
+      - name: Verify provenance, APK identity and source; prepare downloads
+        run: python3 .github/scripts/prepare-verified-syncfix.py prepare
+      - name: Stage, verify and publish the complete prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/prepare-verified-syncfix.py publish

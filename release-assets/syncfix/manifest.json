@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "144a1329a8116b7e2bc78f7f8397aeadff900f8a",
+  "sourceRunId": 43670538409,
+  "windowsArtifactId": 14144383607,
+  "windowsArtifactSha256": "dd96ea736724bd0929c41cc98213640aaecaafff503eff2a1ef41a0a51a3967d",
+  "windowsVersion": "17.1.1-sharing.5-syncfix.1",
+  "windowsFile": "MemoTalk-Setup-17.1.1-sharing.5-syncfix.1-x64.exe",
+  "androidVersion": "17.1.1-sharing.5-syncfix.2",
+  "androidVersionCode": 25,
+  "androidPackage": "kr.memotalk.app.sharingpreview5.syncfix",
+  "androidFile": "MemoTalk-Android-17.1.1-sharing.5-syncfix.2.apk",
+  "androidSha256": "79ef3af7dab354c5c1d9a2d1d994ecb651a42a593a6ec8ce6b3af11e2e3af113",
+  "androidCertificateSha256": "2ac9518dd20995d5caf191522e81e5f18048ab3c956b196f825bf6020bea6b1a",
+  "tag": "sharing-syncfix-20261115"
+}
