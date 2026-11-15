@@ -59,20 +59,27 @@ def prepare():
 
 def publish():
     tag=MANIFEST['tag']
-    endpoint='repos/'+REPO+'/releases/tags/'+tag
-    prior=subprocess.run(['gh','api',endpoint],capture_output=True,text=True)
-    if prior.returncode==0:
-        release=json.loads(prior.stdout)
+    collection='repos/'+REPO+'/releases'
+    # A draft can have no Git tag yet; resolve its database ID from the authenticated list.
+    matches=[r for r in json.loads(gh('api',collection+'?per_page=100')) if r['tag_name']==tag]
+    assert len(matches)<=1
+    if matches:
+        release=matches[0]
         assert release['target_commitish']==MANIFEST['sourceCommit'] and release['prerelease']
         draft=release['draft']
     else:
-        # Abort on authentication/server errors, rather than treating them as an absent tag.
-        assert '404' in prior.stderr
         gh('release','create',tag,'--repo',REPO,'--target',MANIFEST['sourceCommit'],'--title','메모톡 동기화 수정판 — Windows syncfix.1 / Android syncfix.2','--notes-file',str(INPUT/'release-notes.ko.md'),'--draft','--prerelease','--latest=false')
+        matches=[r for r in json.loads(gh('api',collection+'?per_page=100')) if r['tag_name']==tag]
+        assert len(matches)==1
+        release=matches[0]
         draft=True
+    endpoint=collection+'/'+str(release['id'])
     files=sorted(p for p in OUTPUT.iterdir() if p.is_file())
     if draft:
-        gh('release','upload',tag,*[str(p) for p in files],'--repo',REPO,'--clobber')
+        uploaded={a['name']:a for a in release['assets']}
+        for p in files:
+            if uploaded.get(p.name,{}).get('digest')!='sha256:'+digest(p):
+                gh('release','upload',tag,str(p),'--repo',REPO,'--clobber')
     release=json.loads(gh('api',endpoint))
     expected={p.name:p for p in files}
     assert {a['name'] for a in release['assets']}==set(expected)
@@ -81,9 +88,11 @@ def publish():
         assert asset['size']==local.stat().st_size
         if asset.get('digest'):assert asset['digest']=='sha256:'+digest(local)
     verify=Path('verified-remote-downloads');verify.mkdir(exist_ok=False)
-    gh('release','download',tag,'--repo',REPO,'--dir',str(verify))
+    for asset in release['assets']:
+        with (verify/asset['name']).open('wb') as out:
+            subprocess.run(['gh','api','repos/'+REPO+'/releases/assets/'+str(asset['id']),'-H','Accept: application/octet-stream'],stdout=out,check=True)
     for name,local in expected.items():assert digest(verify/name)==digest(local)
-    if draft:gh('release','edit',tag,'--repo',REPO,'--draft=false','--prerelease','--latest=false')
+    if draft:gh('api','--method','PATCH',endpoint,'-F','draft=false','-F','prerelease=true','-f','make_latest=false')
     release=json.loads(gh('api',endpoint))
     assert not release['draft'] and release['prerelease']
     print('Published verified downloads: '+release['html_url'])
