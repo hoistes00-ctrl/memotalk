@@ -1,10 +1,11 @@
-name: Deploy MemoTalk download page
+name: Deploy Modutalk download page
 
 on:
   push:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'index.html'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -29,10 +30,15 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+      - name: Preserve the public root and docs URLs
+        run: |
+          mkdir -p site/docs
+          cp index.html site/index.html
+          cp -R docs/. site/docs/
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./docs
+          path: ./site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
