@@ -1,0 +1,18 @@
+# Historical downloads remain available; this duplicate publisher is retired.
+name: Modutalk downloads — retired publisher (obsidian-bridge-preview)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  current-downloads:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open the unified Modutalk download path
+        run: |
+          echo 'This duplicate publisher is retired. No installer or APK is built or replaced.'
+          echo 'Current Modutalk Windows and Android downloads:'
+          echo 'https://hoistes00-ctrl.github.io/memotalk/docs/'
