@@ -70,10 +70,12 @@ def publish():
         assert release['target_commitish']==MANIFEST['sourceCommit'] and not release['prerelease']
         draft=release['draft']
     else:
-        gh('release','create',tag,'--repo',REPO,'--target',MANIFEST['sourceCommit'],'--title','모두톡 17.2.0','--notes-file',str(INPUT/'release-notes.ko.md'),'--draft','--latest')
-        matches=[r for r in json.loads(gh('api',collection+'?per_page=100')) if r['tag_name']==tag]
-        assert len(matches)==1
-        release=matches[0]
+        release=json.loads(gh('api','--method','POST',collection,
+            '-f','tag_name='+tag,'-f','target_commitish='+MANIFEST['sourceCommit'],
+            '-f','name=모두톡 17.2.0',
+            '-f','body='+(INPUT/'release-notes.ko.md').read_text(encoding='utf-8'),
+            '-F','draft=true','-F','prerelease=false'))
+        assert release['tag_name']==tag and release['draft']
         draft=True
     endpoint=collection+'/'+str(release['id'])
     files=sorted(p for p in OUTPUT.iterdir() if p.is_file())
