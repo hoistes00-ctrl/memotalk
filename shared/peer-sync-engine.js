@@ -131,7 +131,15 @@
       const unique=new Set(variants.map(op=>canonical(op.value)));
       if(unique.size>1)conflicts.push({key,heads:[...ids],selected:selected.id,variants:clone(variants)});
     }
-    return {records,heads,conflicts,pending:[...pending]};
+    // A restored old snapshot must not erase an established room identity.
+    // Alias facts are monotonic across the immutable, causally ready history.
+    const roomAliases={};
+    for(const id of ready){const op=operations[id];
+      if(op.entity.kind==='room'&&op.value?.peerMergedRooms?.length){
+        roomAliases[op.entity.id]=[...new Set([...(roomAliases[op.entity.id]||[]),...op.value.peerMergedRooms])].sort();
+      }
+    }
+    return {records,heads,conflicts,pending:[...pending],roomAliases};
   }
   // Zero denotes an unknown creation time. Identity inference requires a known time.
   const UNKNOWN_CREATION_TIME=0;
@@ -180,10 +188,16 @@
       if(item.entity.kind==='room'&&!item.value.kind&&!item.value.peerConflict){rooms.set(item.entity.id,item);find(item.entity.id);}
       if(item.entity.kind==='msg'){const list=messages.get(item.entity.rid)||[];list.push(item);messages.set(item.entity.rid,list);}
     }
-    // Persisted aliases redirect edits made offline against an already-merged room.
+    // Persisted aliases redirect offline edits, including after an older snapshot
+    // is restored or different copies are merged concurrently on two devices.
+    const facts=new Map(Object.entries(view.roomAliases||{}).map(([id,aliases])=>[id,new Set(aliases)]));
     for(const [id,item]of rooms){
-      const conflict=conflictsByKey.get(entityKey(item.entity));
-      const aliases=new Set([item.value,...(conflict?.variants||[]).filter(op=>op.value!==null).map(op=>op.value)].flatMap(value=>value.peerMergedRooms||[]));
+      const conflict=conflictsByKey.get(entityKey(item.entity)),aliases=facts.get(id)||new Set();facts.set(id,aliases);
+      for(const value of [item.value,...(conflict?.variants||[]).filter(op=>op.value!==null).map(op=>op.value)])for(const alias of value.peerMergedRooms||[])aliases.add(alias);
+    }
+    for(const [id,aliases]of facts){
+      const own=view.records[entityKey({kind:'room',id})];
+      if(own&&(own.value.kind||own.value.peerConflict))continue;
       for(const alias of aliases){
         const record=view.records[entityKey({kind:'room',id:alias})];
         if(record&&(record.value.kind||record.value.peerConflict))continue;

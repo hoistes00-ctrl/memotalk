@@ -148,7 +148,7 @@
             seen.add(parent);parent=rooms[parent].parentId;
           }
         }
-        const list=(msgs[room.id]||[]).sort((a,b)=>a.ts-b.ts),last=list.at(-1);
+        const list=(msgs[room.id]||[]).sort((a,b)=>a.ts-b.ts||(a.id<b.id?-1:a.id>b.id?1:0)),last=list.at(-1);
         room.last=last?String(last.text||'').slice(0,ROOM_PREVIEW_CHARS):'';
         room.updatedAt=last?.edited||last?.ts||room.createdAt||0;
       }

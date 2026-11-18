@@ -194,3 +194,14 @@ test('parallel merges of different copies union all alias histories before accep
   assert.equal(rooms(records(w.records)).length,1);
   for(const text of ['늦은 b','늦은 c'])assert.equal(w.records.find(r=>r.value.text===text).entity.rid,'a');
 });
+
+test('restoring old room metadata cannot forget aliases or strand late offline additions',async()=>{
+  const files=new Map(),f=fixture('a',files,[room('a'),room('b'),memo('a','x','공통'),memo('b','y','공통')]);
+  await settle(f);
+  delete f.records.find(r=>r.entity.kind==='room').value.peerMergedRooms;f.token++;
+  await settle(f);
+  assert.deepEqual(rooms(records(f.records))[0].value.peerMergedRooms,['b']);
+  const late=await P.operation('merge-test','offline',memo('b','late','복원 뒤 늦은 추가',900));
+  files.set(P.DIRECTORY+'/operations/'+late.id+'.json',new TextEncoder().encode(P.canonical(late)));
+  await settle(f);assert.equal(f.records.find(r=>r.value.text==='복원 뒤 늦은 추가').entity.rid,'a');
+});
