@@ -45,4 +45,4 @@ source=re.sub(r'<title>.*?</title>','<title>'+INFO['displayName']+' '+INFO['vers
 write('shared/index.html',source)
 for name in ['index.html','mirror-engine.js','platform-bridge.js','peer-sync-engine.js','peer-sync-client.js']:
     write('android/app/src/main/assets/'+name,(ROOT/'shared'/name).read_text(encoding='utf-8'))
-print(('Checked' if CHECK else 'Synchronized')+' '+INFO['displayName']+' '+INFO['version']+'; existing app IDs and profile preserved.')
+print(('Checked' if CHECK else 'Synchronized')+' Modutalk '+INFO['version']+'; existing app IDs and profile preserved.')
