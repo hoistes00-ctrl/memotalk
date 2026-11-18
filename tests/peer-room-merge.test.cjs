@@ -175,3 +175,22 @@ test('system archive and folder rooms never merge with ordinary conversations',a
   const result=await combine([f,a,r,memo('a','x','공통'),memo('b','y','공통'),memo('c','z','공통')]);
   assert.equal(rooms(result).length,3);
 });
+
+test('parallel merges of different copies union all alias histories before accepting late edits',async()=>{
+  const shared=[room('a'),memo('a','x','공통')];
+  const wf=new Map(),pf=new Map(),w=fixture('windows',wf,[...shared,room('b'),memo('b','y','공통')]),p=fixture('android',pf,[...shared,room('c'),memo('c','z','공통')]);
+  await w.replica.tick();await p.replica.tick();
+  for(const [k,v]of pf)wf.set(k,copy(v));
+  p.transport.read=async path=>copy(wf.get(path)||null);
+  p.transport.list=async path=>[...wf.keys()].filter(k=>k.startsWith(path+'/')).map(k=>k.slice(path.length+1));
+  p.transport.put=async(path,data)=>{if(wf.has(path))assert.deepEqual(wf.get(path),data);wf.set(path,copy(data));};
+  await settle(w,p);
+  assert.deepEqual(rooms(records(w.records))[0].value.peerMergedRooms,['b','c']);
+  for(const rid of ['b','c']){
+    const late=await P.operation('merge-test','late-'+rid,memo(rid,'late-'+rid,'늦은 '+rid,700));
+    wf.set(P.DIRECTORY+'/operations/'+late.id+'.json',new TextEncoder().encode(P.canonical(late)));
+  }
+  await settle(p,w);
+  assert.equal(rooms(records(w.records)).length,1);
+  for(const text of ['늦은 b','늦은 c'])assert.equal(w.records.find(r=>r.value.text===text).entity.rid,'a');
+});

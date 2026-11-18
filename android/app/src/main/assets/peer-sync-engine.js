@@ -173,6 +173,7 @@
   }
   async function coalesceRooms(view){
     const desired={...view.records},rooms=new Map(),messages=new Map(),parents=new Map();
+    const conflictsByKey=new Map(view.conflicts.map(conflict=>[conflict.key,conflict]));
     const find=id=>{if(!parents.has(id))parents.set(id,id);let root=id;while(parents.get(root)!==root)root=parents.get(root);while(parents.get(id)!==id){const next=parents.get(id);parents.set(id,root);id=next;}return root;};
     const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)parents.set(a<b?b:a,a<b?a:b);};
     for(const item of Object.values(view.records)){
@@ -180,10 +181,14 @@
       if(item.entity.kind==='msg'){const list=messages.get(item.entity.rid)||[];list.push(item);messages.set(item.entity.rid,list);}
     }
     // Persisted aliases redirect edits made offline against an already-merged room.
-    for(const [id,item]of rooms)for(const alias of item.value.peerMergedRooms||[]){
-      const record=view.records[entityKey({kind:'room',id:alias})];
-      if(record&&(record.value.kind||record.value.peerConflict))continue;
-      union(id,alias);
+    for(const [id,item]of rooms){
+      const conflict=conflictsByKey.get(entityKey(item.entity));
+      const aliases=new Set([item.value,...(conflict?.variants||[]).filter(op=>op.value!==null).map(op=>op.value)].flatMap(value=>value.peerMergedRooms||[]));
+      for(const alias of aliases){
+        const record=view.records[entityKey({kind:'room',id:alias})];
+        if(record&&(record.value.kind||record.value.peerConflict))continue;
+        union(id,alias);
+      }
     }
     const evidence=new Map();
     for(const [id,item]of rooms){
@@ -199,13 +204,13 @@
     }
     const groups=new Map();
     for(const id of parents.keys()){const root=find(id),group=groups.get(root)||[];group.push(id);groups.set(root,group);}
-    const conflicted=new Map(view.conflicts.filter(c=>c.variants[0]?.entity.kind==='msg').map(c=>[c.key,c]));
     let mergedRooms=0;
     for(const members of groups.values()){
       if(members.length===1)continue;
       members.sort();const target=members[0];
       const sources=members.filter(id=>rooms.has(id));if(!sources.length)continue;
-      if(sources.length===1&&sources[0]===target&&members.every(id=>id===target||!(messages.get(id)||[]).length))continue;
+      if(sources.length===1&&sources[0]===target&&members.every(id=>id===target||!(messages.get(id)||[]).length)&&
+        canonical(rooms.get(target).value.peerMergedRooms||[])===canonical(members.filter(id=>id!==target)))continue;
       const primary=rooms.get(target)||rooms.get(sources[0]);
       const room={...clone(primary.value),id:target,peerMergedRooms:members.filter(id=>id!==target)};
       const tags=[...new Set(sources.flatMap(id=>rooms.get(id).value.tags||[]))].sort();
@@ -217,7 +222,7 @@
       for(const item of members.flatMap(id=>messages.get(id)||[])){
         const key=entityKey(item.entity);
         delete desired[key];
-        const variants=conflicted.get(key)?.variants.filter(op=>op.value!==null)||[item];
+        const variants=conflictsByKey.get(key)?.variants.filter(op=>op.value!==null)||[item];
         for(const variant of variants){
           const signature=memoIdentity(variant.value),byRoom=buckets.get(signature)||new Map();buckets.set(signature,byRoom);
           const list=byRoom.get(item.entity.rid)||[];list.push({entity:item.entity,value:variant.value});byRoom.set(item.entity.rid,list);
