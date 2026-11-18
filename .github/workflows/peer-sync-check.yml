@@ -1,9 +1,11 @@
-name: Validate Windows-Android shared-folder sync
+name: Validate Modutalk Windows-Android sync
 
 on:
   push:
     branches: ['feature/obsidian-bridge-prototype']
     paths:
+      - 'app-info.json'
+      - 'scripts/sync-app-info.py'
       - 'shared/**'
       - 'windows/**'
       - '.github/scripts/*sharing*'
@@ -12,6 +14,8 @@ on:
       - '.github/workflows/peer-sync-check.yml'
   pull_request:
     paths:
+      - 'app-info.json'
+      - 'scripts/sync-app-info.py'
       - 'shared/**'
       - 'windows/**'
       - 'android/**'
@@ -37,8 +41,9 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install playwright
       - run: python -m playwright install chromium
+      - run: python scripts/sync-app-info.py --check
       - run: node tests/check-ui.mjs
-      - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs tests/toast.test.cjs tests/peer-group-recovery.test.cjs tests/peer-client-join.test.cjs tests/peer-progress-diagnostics.test.cjs
+      - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs tests/toast.test.cjs tests/peer-group-recovery.test.cjs tests/peer-client-join.test.cjs tests/peer-progress-diagnostics.test.cjs tests/app-identity.test.cjs
       - run: python tests/peer-browser-smoke.py
       - name: Repeat UI roundtrip with Android creating the group first
         env:
@@ -73,7 +78,7 @@ jobs:
         run: gradle --no-daemon testSharingPreviewUnitTest assembleSharingPreview
       - uses: actions/upload-artifact@v4
         with:
-          name: MemoTalk-sharing-preview-Android
+          name: Modutalk-Android
           if-no-files-found: error
           path: |
             android/app/build/outputs/apk/sharingPreview/*.apk
@@ -131,10 +136,10 @@ jobs:
         run: |
           python3 tests/check-android-package.py android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview5'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/sharingPreview/app-sharingPreview.apk | grep -F "name='kr.memotalk.app.sharingpreview5.syncfix'"
       - uses: actions/upload-artifact@v4
         with:
-          name: MemoTalk-sharing-preview-Android-tested
+          name: Modutalk-Android-tested
           if-no-files-found: error
           path: android/app/build/outputs/apk/sharingPreview/*.apk
       - uses: actions/upload-artifact@v4
@@ -182,46 +187,14 @@ jobs:
         run: |
           $installTarget = Join-Path $env:RUNNER_TEMP 'MemoTalkSharingInstall'
           if (-not ([IO.Path]::GetFullPath($installTarget)).StartsWith(([IO.Path]::GetFullPath($env:RUNNER_TEMP) + [IO.Path]::DirectorySeparatorChar))) { throw 'Unsafe test install location' }
-          $installer = @(Get-ChildItem windows/dist -Filter 'MemoTalk-Setup-*.exe')
+          $installer = @(Get-ChildItem windows/dist -Filter 'Modutalk-Setup-*.exe')
           if ($installer.Count -ne 1) { throw 'Expected one tested installer' }
           $install = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$installTarget") -Wait -PassThru -WindowStyle Hidden
           if ($install.ExitCode -ne 0) { throw 'Installer failed' }
-          node tests/peer-packaged-windows.cjs android-return (Join-Path $installTarget 'MemoTalk.exe')
+          node tests/peer-packaged-windows.cjs android-return (Join-Path $installTarget '모두톡.exe')
           if ($LASTEXITCODE -ne 0) { throw 'Installed Windows roundtrip failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: MemoTalk-sharing-preview-Windows
+          name: Modutalk-Windows
           if-no-files-found: error
           path: windows/dist/*.exe
-
-  publish-preview:
-    needs: [protocol, android, android-runtime, roundtrip-windows]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/obsidian-bridge-prototype' && contains(github.event.head_commit.message, '[publish-sharing-preview]')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: MemoTalk-sharing-preview-Android-tested
-          path: release-input/android
-      - uses: actions/download-artifact@v4
-        with:
-          name: MemoTalk-sharing-preview-Windows
-          path: release-input/windows
-      - name: Prepare tested executables, checksums and build provenance
-        env:
-          PREVIEW_SIGNING: ${{ needs.android-runtime.outputs.signing }}
-        run: python3 .github/scripts/prepare-sharing-preview.py
-      - name: Publish separate prerelease from the tested source
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version=$(node -p "require('./windows/package.json').version")
-          tag="sharing-preview-${version}-${GITHUB_RUN_ID}"
-          (cd release-assets && sha256sum --check SHA256SUMS.txt)
-          gh release create "$tag" release-assets/* \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "MemoTalk ${version} - Windows Android sharing preview" \
-            --prerelease --latest=false --notes-file release-notes.md

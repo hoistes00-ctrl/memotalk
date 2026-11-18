@@ -3,6 +3,8 @@ name: Review UI source (no app build or deployment)
 on:
   pull_request:
     paths:
+      - 'app-info.json'
+      - 'scripts/**'
       - 'shared/**'
       - 'android/app/src/main/assets/**'
       - 'windows/**'
@@ -26,4 +28,4 @@ jobs:
       - name: Check source syntax and UI features
         run: node tests/check-ui.mjs
       - name: Test verified mirror, recovery and native bridge
-        run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs
+        run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/app-identity.test.cjs

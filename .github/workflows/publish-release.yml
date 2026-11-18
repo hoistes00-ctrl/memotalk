@@ -69,7 +69,7 @@ jobs:
           cd windows
           npm install --no-audit --no-fund
           npm run dist:win
-          $installer = Get-ChildItem -Path dist -Filter 'MemoTalk-Setup-*.exe' | Select-Object -First 1
+          $installer = Get-ChildItem -Path dist -Filter 'Modutalk-Setup-*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Windows installer was not produced' }
           New-Item -ItemType Directory -Force ../release-files | Out-Null
           Copy-Item $installer.FullName ../release-files/MemoTalk-Windows-Setup.exe

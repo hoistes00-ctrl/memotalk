@@ -1,150 +1,26 @@
 <!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MemoTalk · 다운로드</title>
-  <style>
-    :root{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color-scheme:light dark}
-    body{max-width:620px;margin:0 auto;padding:36px 20px;line-height:1.6}
-    h1{margin:0 0 6px}p{color:color-mix(in srgb,currentColor 75%,transparent)}
-    .card{border:1px solid #9997;border-radius:16px;padding:20px;margin:18px 0}
-    a.button{display:block;background:#f3d45d;color:#171717;text-decoration:none;border-radius:10px;padding:12px 16px;font-weight:650;text-align:center;margin-top:10px}
-    a.button.secondary{background:#8882;color:inherit;border:1px solid #9997}
-    #main{border:2px solid #e6cb54}small{opacity:.8}
-  </style>
-</head>
-<body>
-  <h1>MemoTalk · 메모톡</h1>
-  <p>Android와 Windows에서 사용하는 오프라인 메모 앱. 기존 메모방, 댓글, 폴더, JSON 백업을 지원합니다.</p>
-  <section class="card" id="main">
-    <h2 id="device-title">다운로드</h2>
-    <p id="device-description">운영체제를 확인하고 있습니다.</p>
-    <a class="button" id="device-link" href="#downloads">다운로드 파일 선택</a>
-  </section>
-  <p id="release-status" role="status" aria-live="polite" style="margin:12px 0 20px">GitHub 공개 버전을 확인 중입니다.</p>
-  <section class="card" id="downloads">
-    <h2>다른 기기용 받기</h2>
-    <a class="button secondary" id="android-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">Android APK · 배포 준비 중</a>
-    <a class="button secondary" id="windows-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">Windows 설치 파일 · 배포 준비 중</a>
-    <a class="button secondary" id="release-link" href="https://github.com/hoistes00-ctrl/memotalk/releases">모든 버전 보기</a>
-  </section>
-  <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Android 정식 메모톡 업데이트 안내:</strong> 기존 앱과 동일한 <code>kr.memotalk.app</code> 패키지로 준비하고 있습니다. 기존 메모를 유지한 채 덮어 설치하려면 예전 앱과 <strong>동일한 서명키</strong>가 필요합니다. 정식 서명 APK가 검증되어 게시되기 전에는 다운로드 버튼을 활성화하지 않습니다. 기존 앱을 삭제하지 말고 JSON 백업을 별도로 보관하세요.</p>
-  <p style="padding:12px 16px;border:1px solid #d8b568;border-radius:10px;margin:10px 0 16px"><strong>Windows v17.0.2 설치 주의:</strong> 목록에서 메모방을 마우스로 끌어 순서를 저장할 수 있습니다. 설치 파일은 코드 서명이 없는 시험판이므로 Windows SmartScreen 또는 브라우저에서 경고가 표시될 수 있습니다. 신뢰할 수 있는 출처인지 확인하고 설치하세요. 기존 메모톡 사용자는 먼저 JSON으로 백업해 주세요.</p>
-  <small>설치 전 기존 메모를 JSON으로 백업하세요. 정식 APK가 기존 디버그 APK와 서명이 다르면 덮어 설치가 불가능합니다. 릴리스가 아직 없으면 다운로드 링크가 열리지 않을 수 있습니다.</small>
-  <script>
-    (() => {
-      'use strict';
-      const repo = 'hoistes00-ctrl/memotalk';
-      const releases = 'https://github.com/' + repo + '/releases';
-      const latestApi = 'https://api.github.com/repos/' + repo + '/releases/latest';
-      const $ = id => document.getElementById(id);
-      const os = /Android/i.test(navigator.userAgent) ? 'android' :
-        /Windows NT/i.test(navigator.userAgent) ? 'windows' : null;
-      const main = $('device-link');
-      const title = $('device-title');
-      const description = $('device-description');
-      const status = $('release-status');
-      const links = { android: $('android-link'), windows: $('windows-link') };
-      const expected = { android: 'MemoTalk-Android.apk', windows: 'MemoTalk-Windows-Setup.exe' };
-      const windowsTestUrl = 'https://github.com/hoistes00-ctrl/memotalk/raw/refs/heads/windows-downloads/MemoTalk-Windows-Setup.exe';
-      const downloads = { android: null, windows: null };
-      $('release-link').href = releases;
-      if (os === 'android') {
-        title.textContent = 'Android용 메모톡';
-        description.textContent = '갤럭시 등 Android 기기용 APK 파일';
-      } else if (os === 'windows') {
-        title.textContent = 'Windows용 메모톡';
-        description.textContent = 'Windows 64비트 설치 프로그램';
-      } else {
-        title.textContent = '사용할 기기를 선택하세요';
-        description.textContent = '현재 기기를 자동으로 구분하지 못했습니다.';
-      }
-      main.textContent = '다운로드 파일 선택';
-      main.href = '#downloads';
-      for (const type of Object.keys(links)) {
-        links[type].href = releases;
-        links[type].textContent = type === 'android'
-          ? 'Android APK · 공개 릴리스 확인'
-          : 'Windows EXE · 공개 릴리스 확인';
-      }
-      // Never present an ephemeral test-signed APK as an update for the original package.
-      const officialApk = 'https://github.com/' + repo + '/raw/refs/heads/android-official-downloads/MemoTalk-Android.apk';
-      links.android.href = 'https://github.com/' + repo + '/blob/main/SIGNING.md';
-      links.android.textContent = 'Android 정식 메모톡 · 서명 APK 준비 중';
-      if (os === 'android') {
-        main.href = '#downloads';
-        main.textContent = '정식 APK 배포 준비 중';
-        description.textContent += ' · 기존 메모를 유지하려면 동일한 서명키가 필요해요';
-      }
-      async function checkOfficialApk(){
-        try {
-          const response = await fetch('https://api.github.com/repos/' + repo + '/contents/MemoTalk-Android.apk?ref=android-official-downloads',
-            {headers:{Accept:'application/vnd.github+json'}});
-          if (!response.ok) return;
-          const record = await response.json();
-          if (record.type !== 'file' || record.name !== 'MemoTalk-Android.apk' || !Number.isFinite(record.size) || record.size < 1000) return;
-          links.android.href = officialApk;
-          links.android.textContent = '메모톡 Android 정식 APK 다운로드';
-          if (os === 'android') {
-            main.href = officialApk;
-            main.textContent = '메모톡 APK 다운로드';
-            description.textContent = 'Android용 메모톡 정식 서명 APK · 설치 전에 백업하세요';
-          }
-        } catch (_) { /* Missing or unavailable official build must not show a broken download link. */ }
-      }
-      checkOfficialApk();
-      // Public unsigned Windows installer; direct link does not require Android Studio or build tools.
-      links.windows.href = windowsTestUrl;
-      links.windows.textContent = 'Windows v17.0.2 설치 파일 다운로드 (시험판)';
-      if (os === 'windows') {
-        main.href = windowsTestUrl;
-        main.textContent = 'Windows 설치 파일(EXE) 다운로드';
-        description.textContent += ' · 시험판 / 코드 서명 없음';
-      }
-      function safeAssetUrl(asset, name) {
-        if (!asset || asset.name !== name || typeof asset.browser_download_url !== 'string') return null;
-        try {
-          const url = new URL(asset.browser_download_url);
-          return url.protocol === 'https:' && url.hostname === 'github.com' &&
-            url.pathname.startsWith('/' + repo + '/releases/download/') &&
-            url.pathname.endsWith('/' + name) ? url.href : null;
-        } catch (_) { return null; }
-      }
-      async function checkRelease() {
-        try {
-          const response = await fetch(latestApi, { headers: { Accept: 'application/vnd.github+json' } });
-          if (response.status === 404) {
-            status.textContent = 'Windows 설치 파일 제공 중 · Android 정식 서명 APK 준비 중';
-            return;
-          }
-          if (!response.ok) throw Error('HTTP ' + response.status);
-          const release = await response.json();
-          const assets = Array.isArray(release.assets) ? release.assets : [];
-          for (const type of Object.keys(expected)) {
-            downloads[type] = assets.map(a => safeAssetUrl(a, expected[type])).find(Boolean) || null;
-            if (downloads[type]) {
-              links[type].href = downloads[type];
-              links[type].textContent = type === 'android' ? 'Android APK 다운로드' : 'Windows EXE 다운로드';
-            }
-          }
-          const count = Object.values(downloads).filter(Boolean).length;
-          const version = typeof release.tag_name === 'string' ? release.tag_name : '최신 버전';
-          status.textContent = count
-            ? '공개 버전 ' + version + ' · 설치 파일 ' + count + '종 다운로드 가능'
-            : '릴리스 ' + version + ' · 설치 파일은 아직 준비 중입니다.';
-          if (os && downloads[os]) {
-            main.href = downloads[os];
-            main.textContent = os === 'android' ? 'Android APK 다운로드' : 'Windows EXE 다운로드';
-            description.textContent += ' · 현재 다운로드 가능';
-          } else if (os) {
-            description.textContent += ' · 아직 설치 파일 준비 중';
-          }
-        } catch (_) {
-          status.textContent = '정식 릴리스 정보를 확인할 수 없습니다. 위 시험판 다운로드 링크는 사용할 수 있습니다.';
-        }
-      }
-      checkRelease();
-    })();
-  </script>
-</body>
-</html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>모두톡 다운로드</title>
+<style>body{font:17px/1.7 system-ui,sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#172536;background:#f6f8fc}section{background:white;padding:22px;border:1px solid #d7e0eb;border-radius:14px;margin:20px 0}a.download{display:block;padding:12px 16px;margin:10px 0;background:#ffdf65;color:#172536;text-decoration:none;border-radius:10px}a[aria-disabled=true]{pointer-events:none;opacity:.5}.muted{color:#546476}</style>
+<h1>모두톡</h1><p id="version">Windows · Android 통합 버전</p>
+<section><h2>다운로드</h2><p id="status" role="status">공개 설치 파일을 확인하고 있습니다.</p><a class="download" id="windows" aria-disabled="true">Windows 설치 파일</a><a class="download" id="android" aria-disabled="true">Android APK</a><a class="download" id="portable" aria-disabled="true">Windows 무설치 버전</a><a id="release" href="https://github.com/hoistes00-ctrl/memotalk/releases">릴리스·체크섬·설치 안내</a></section>
+<section><h2>기존 자료 이어서 쓰기</h2><p>현재 동기화 수정판은 데이터를 유지하는 같은 앱으로 업데이트합니다. 이름을 바꾸기 위해 기존 앱이나 공유 폴더를 삭제할 필요가 없습니다. 예전 별도 시험판은 앱 ID·서명이 다를 수 있으므로 먼저 백업과 이전 여부를 확인하세요.</p><p class="muted">이미 작성한 메모 안의 이름과 기존 저장소 식별자는 유지합니다. 설치 전에는 사용 중인 앱을 종료하세요.</p></section>
+<script>
+(async()=>{
+  const status=document.getElementById('status');
+  try{
+    const response=await fetch('./downloads.json');if(!response.ok)throw Error('configuration');
+    const config=await response.json(),base='https://github.com/'+config.repository;
+    document.title=config.displayName+' '+config.version+' 다운로드';document.getElementById('version').textContent='Windows · Android 모두 '+config.version;
+    document.getElementById('release').href=base+'/releases/tag/'+encodeURIComponent(config.tag);
+    const result=await fetch('https://api.github.com/repos/'+config.repository+'/releases/tags/'+encodeURIComponent(config.tag),{headers:{Accept:'application/vnd.github+json'}});
+    if(!result.ok)throw Error('release');const release=await result.json();if(release.draft)throw Error('draft');
+    for(const [kind,name]of Object.entries(config.files)){
+      const asset=release.assets.find(a=>a.name===name);if(!asset)throw Error('missing');
+      const url=new URL(asset.browser_download_url);
+      if(url.origin!=='https://github.com'||url.pathname!=='/'+config.repository+'/releases/download/'+config.tag+'/'+name)throw Error('url');
+      const link=document.getElementById(kind);link.href=url.href;link.removeAttribute('aria-disabled');link.textContent+=' · '+config.version;
+    }
+    status.textContent=config.displayName+' '+config.version+' 공개 파일을 확인했습니다.';
+  }catch(_){status.textContent='설치 파일 정보를 아직 확인하지 못했습니다. 릴리스 안내에서 공개 상태를 확인하세요.';}
+})();
+</script></html>

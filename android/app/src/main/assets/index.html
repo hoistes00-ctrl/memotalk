@@ -34,7 +34,7 @@
 .memo-sentence-toolbar button{border-radius:9px;background:var(--surface-2);padding:9px 12px}
 .memo-sentence-toolbar .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
 </style>
-<title>메모톡 v17 — 자동 백업과 휴지통</title>
+<title>모두톡 17.2.0</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -398,7 +398,7 @@ body{position:relative;margin:0}
 <div class="app" id="app" data-view="list">
   <section class="pane pane-list" aria-label="채팅방 목록">
     <header class="hdr gut">
-      <h1>메모톡</h1>
+      <h1>모두톡</h1>
       <button class="ibtn" id="btn-layout" aria-label="격자형 보기로 전환" title="목록/격자 보기"></button>
       <button class="ibtn" id="btn-gsearch" aria-label="전체 검색"></button>
       <button class="ibtn" id="btn-trash-shortcut" aria-label="휴지통 열기" title="휴지통 · 삭제 항목 복원"></button>
@@ -644,7 +644,7 @@ function openScrim(inner, onClose){
   const dialog = scrim.firstElementChild;
   const heading = dialog.querySelector('h2');
   if (heading) { heading.id = 'sheet-title'; dialog.setAttribute('aria-labelledby', heading.id); }
-  else dialog.setAttribute('aria-label', '메모톡 메뉴');
+  else dialog.setAttribute('aria-label', '모두톡 메뉴');
   scrim.addEventListener('keydown', event => {
     if (event.key !== 'Tab') return;
     const controls = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')].filter(control => control.getClientRects().length);
@@ -1002,7 +1002,7 @@ async function showVaultBackups(){
   dialog.querySelectorAll('[data-b-download]').forEach(btn=>btn.onclick=async()=>{
     const record=await vaultGet('snapshots',btn.dataset.bDownload);
     if(!record)return toast('백업을 찾지 못했어요.');
-    try{await saveFile(`메모톡-자동백업-${record.createdAt}.json`,JSON.stringify(rawToPortableBackup(record.raw,record.createdAt)));}
+    try{await saveFile(`모두톡-자동백업-${record.createdAt}.json`,JSON.stringify(rawToPortableBackup(record.raw,record.createdAt)));}
     catch(_){toast('파일을 내보내지 못했어요.');}
   });
   dialog.querySelectorAll('[data-b-restore]').forEach(btn=>btn.onclick=async()=>{
@@ -2655,7 +2655,7 @@ async function linkFileMirror(){
     if(index){
       const remembered=await mirrorHandleStore('get');
       if(!trusted.includes(index.linkId)&&index.linkId!==remembered?.linkId){
-        return toast('다른 메모톡 저장본이 있는 폴더예요. 데이터 보호를 위해 별도의 빈 폴더를 선택해 주세요.',true);
+        return toast('다른 모두톡 저장본이 있는 폴더예요. 데이터 보호를 위해 별도의 빈 폴더를 선택해 주세요.',true);
       }
       linkId=index.linkId;
     }else if(!await isMirrorEmpty(chosen)){
@@ -2712,7 +2712,7 @@ async function showFileFolderMenu(){
   ];
   if(fileMirror.handle)options.push({icon:'load',label:'불완전 저장본 검사·새 폴더 복구 (원본 유지)',run:()=>reviewIncompleteMirror(fileMirror.handle)});
   if(fileMirror.handle)options.push({icon:'close',label:'저장 폴더 연결 해제 (파일은 유지)',run:disconnectFileMirror});
-  return menu('실제 Markdown 파일 저장',options,'빈 전용 폴더를 선택하세요. 로컬 파일 저장과 원격 Sync 완료는 다릅니다. Obsidian Sync에서는 해당 폴더 제외 여부와 각 기기의 Sync all other types 설정을 확인하세요. 다른 기기 메모톡으로 자동 가져오기와 양방향 편집은 아직 지원하지 않습니다.');
+  return menu('실제 Markdown 파일 저장',options,'빈 전용 폴더를 선택하세요. 로컬 파일 저장과 원격 Sync 완료는 다릅니다. Obsidian Sync에서는 해당 폴더 제외 여부와 각 기기의 Sync all other types 설정을 확인하세요. 다른 기기 모두톡으로 자동 가져오기와 양방향 편집은 아직 지원하지 않습니다.');
 }
 $('#btn-file-folder').addEventListener('click',showFileFolderMenu);
 // Diagnostics stay on this device; export only on an explicit user action.
@@ -2952,12 +2952,12 @@ async function buildTransferEntries(roomIds=null, onProgress=null){
       const path=transferFolderPath(folder,S.folders);
       entries.push([`${path}/folder-info.json`,JSON.stringify({kind:'folder',id:folder.id,name:folder.name,parentId:folder.parentId||null,createdAt:folder.createdAt||null},null,2)]);
     }
-    entries.push(['메모톡-파일안내.txt',
-      '메모톡 Markdown 파일 저장본\n\n이 폴더의 메모는 메모톡 앱의 내부 저장본을 바탕으로 생성됩니다.\n'+
+    entries.push(['모두톡-파일안내.txt',
+      '모두톡 Markdown 파일 저장본\n\n이 폴더의 메모는 모두톡 앱의 내부 저장본을 바탕으로 생성됩니다.\n'+
       'memos/*.md: 개별 메모, attachments/: 사진, conflicts/: 이전 내용 보관\n'+
       'manifest.json: 폴더·메모방·메시지 ID 및 백업 복원용 정보\n'+
-      '실제 파일을 직접 수정한 내용은 아직 메모톡에 자동으로 가져오지 않습니다.\n'+
-      '직접 수정된 파일을 발견하면 메모톡은 덮어쓰기를 중단합니다.\n'+
+      '실제 파일을 직접 수정한 내용은 아직 모두톡에 자동으로 가져오지 않습니다.\n'+
+      '직접 수정된 파일을 발견하면 모두톡은 덮어쓰기를 중단합니다.\n'+
       '.memotalk-history/: 이동·이름 변경·삭제로 교체된 이전 파일의 보관함\n'+
       '이 저장 폴더를 다른 기기와 자동 동기화하는 기능은 아직 없습니다.\n']);
     async function addImages(prefix,images,owner){
@@ -3015,7 +3015,7 @@ async function exportTransfer(roomIds=null){
     const {entries,rooms}=await buildTransferEntries(roomIds,(done,total)=>toast(`Markdown 묶음 만드는 중… ${done}/${total}`,true));
     const zip=zipPack(entries);
     if(zip.size>TRANSFER_MAX_BYTES)throw new Error('transfer_size');
-    await saveFile(`${roomIds?transferName(rooms[0].name)+'-':''}메모톡-Markdown-${stamp()}.zip`,zip);
+    await saveFile(`${roomIds?transferName(rooms[0].name)+'-':''}모두톡-Markdown-${stamp()}.zip`,zip);
   }catch(error){toast(error?.message==='transfer_image'?'사진을 읽지 못해 묶음을 만들지 않았어요.':error?.message==='transfer_size'?'묶음이 너무 커요. 메모방을 나누어 옮겨 주세요.':'Markdown 묶음을 만들지 못했어요.');}
 }
 function transferPath(files,prefix,relative){
@@ -3177,7 +3177,7 @@ $('#btn-new').addEventListener('click', createRoom);
 $('#btn-new-folder').addEventListener('click', () => newFolder());
 $('#btn-trash-shortcut').addEventListener('click',showVaultTrash);
 $('#btn-more').addEventListener('click', () => {
-  menu('메모톡', [
+  menu('모두톡', [
     {icon:'folder',label:'새 폴더 만들기',run:()=>newFolder()},
     {icon:'folder',label:'실제 Markdown 저장 폴더',run:showFileFolderMenu},
     {icon:'save',label:'Markdown 묶음 내보내기',run:exportTransfer},
@@ -3237,7 +3237,7 @@ function buildExportHtml(title, sections){
   const body = sections.map((s, i) => `<section id="room-${i+1}">${multi ? `<header><h2>${esc(s.room.name)}</h2><p>메모 ${s.n}개${roomTags(s.room).length ? ' · ' + esc(tagStr(s.room)) : ''}</p></header>` : ''}<div class="log">${s.body || '<p class="none">메모가 없어요.</p>'}</div></section>`).join('');
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="generator" content="메모톡"><title>${esc(title)}</title>
+<meta name="generator" content="모두톡"><title>${esc(title)}</title>
 <style>
 :root{--bg:#F5F6F8;--chat:#B9CCDD;--surface:#fff;--ink:#181B21;--sub:#596070;--meta:#4A5868;--pill:rgba(24,36,52,.16);--pill-ink:#fff;--bubble:#FFE45C;--bubble-ink:#1C1D21;--line:#E2E5EA;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bg:#111317;--chat:#1B2129;--surface:#191C21;--ink:#ECEEF2;--sub:#A8AFBC;--meta:#8C96A5;--pill:rgba(255,255,255,.08);--pill-ink:#B8C0CC;--bubble:#F0D44C;--bubble-ink:#17181B;--line:#2A2F37;color-scheme:dark}}
@@ -3268,7 +3268,7 @@ section header p{margin:0;color:var(--sub);font-size:12px}
 .none{text-align:center;color:var(--meta);margin:24px 0}
 @media print{body{background:#fff}section{break-inside:auto}}
 </style></head><body><div class="wrap">
-<h1>${esc(title)}</h1><p class="sub">${esc(fDay.format(new Date()))} ${esc(fTime.format(new Date()))} 메모톡에서 내보냄${count}</p>
+<h1>${esc(title)}</h1><p class="sub">${esc(fDay.format(new Date()))} ${esc(fTime.format(new Date()))} 모두톡에서 내보냄${count}</p>
 ${toc}${body}
 </div></body></html>`;
 }
@@ -3296,7 +3296,7 @@ async function exportHtml(ids){
       }
       sections.push({room, n:list.length, body});
     }
-    const title = rooms.length === 1 ? rooms[0].name : '메모톡 전체 채팅방';
+    const title = rooms.length === 1 ? rooms[0].name : '모두톡 전체 채팅방';
     await saveFile(`${safeName(title)}-${stamp()}.html`, buildExportHtml(title, sections));
     if (missing) toast(`저장했어요. 사진 ${missing}장은 불러오지 못해 빠졌어요.`);
   } catch(e){ toast('HTML을 만들지 못했어요.'); }
@@ -3345,7 +3345,7 @@ async function exportBackup(){
         out.archives.push({roomId:r.id,msgs:copies});
       }
     }
-    await saveFile(`메모톡-백업-${stamp()}.json`, JSON.stringify(out));
+    await saveFile(`모두톡-백업-${stamp()}.json`, JSON.stringify(out));
   } catch(e){ toast(e?.message === 'backup_image_missing' ? '사진을 읽지 못해 백업을 중단했어요. 누락된 백업은 저장하지 않았어요.' : '백업을 만들지 못했어요.'); }
 }
 async function importJsonV3(data){
@@ -3392,8 +3392,8 @@ async function importJsonV3(data){
 $('#file-backup').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   let data;
-  try { data = JSON.parse(await f.text()); } catch(_){ return toast('백업 파일을 읽지 못했어요. 메모톡에서 저장한 .json 파일인지 확인해 주세요.'); }
-  if (data?.app !== 'memotalk' || !Array.isArray(data.rooms)) return toast('메모톡 백업 파일이 아니에요.');
+  try { data = JSON.parse(await f.text()); } catch(_){ return toast('백업 파일을 읽지 못했어요. 모두톡에서 저장한 .json 파일인지 확인해 주세요.'); }
+  if (data?.app !== 'memotalk' || !Array.isArray(data.rooms)) return toast('모두톡 백업 파일이 아니에요.');
   const nMsgs = data.rooms.reduce((a, r) => a + (r.msgs?.length || 0), 0);
   if (!await ask({title:'백업을 불러올까요?', body:`채팅방 ${data.rooms.length}개, 메모 ${nMsgs}개를 새로 추가해요. 지금 있는 채팅방은 그대로 남아요.`, ok:'불러오기'})) return;
   if(data.version===3)return importJsonV3(data);
@@ -3594,7 +3594,7 @@ async function seedIfNew(){
   if (S.rooms.length) return;
   const now = Date.now(), id = newId();
   const lines = [
-    '메모톡에 오신 걸 환영해요. 여기는 나만 보는 채팅방이에요. 떠오르는 걸 바로 보내 두세요.',
+    '모두톡에 오신 걸 환영해요. 여기는 나만 보는 채팅방이에요. 떠오르는 걸 바로 보내 두세요.',
     '메모방과 폴더를 마우스로 끌거나 터치로 길게 누른 채 끌어 이동해요. 선택 버튼으로 여러 항목을 체크할 수 있고, 이동 후 되돌리기도 가능해요.',
     '방 안의 메모를 길게 누르면 복사, 수정, 삭제, 댓글 달기를 할 수 있어요. 댓글은 펼치거나 접을 수 있고, 각 댓글의 ⋯ 메뉴로 개별 수정·삭제할 수 있어요.',
     '사진은 왼쪽 아래 + 버튼으로 첨부하거나, 캡처한 이미지를 입력창에 붙여넣으면 돼요.',
@@ -3602,7 +3602,7 @@ async function seedIfNew(){
     '오른쪽 위 메뉴에서 이 방을 PDF로 내보낼 수 있고, 목록 화면 메뉴에서 전체 백업을 저장하거나 불러올 수 있어요.',
     '다 읽으셨으면 이 방은 지워도 괜찮아요.',
   ];
-  await backend.setRoom({id, name:'메모톡 사용법', createdAt:now, updatedAt:now + lines.length, last:preview({text:lines[lines.length-1]}), pinned:false});
+  await backend.setRoom({id, name:'모두톡 사용법', createdAt:now, updatedAt:now + lines.length, last:preview({text:lines[lines.length-1]}), pinned:false});
   for (let i = 0; i < lines.length; i++) await backend.setMsg(id, {id:newId() + i, ts:now + i, text:lines[i]});
 }
 async function boot(){

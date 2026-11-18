@@ -12,7 +12,7 @@ async function mainFixture(t) {
   const dir=await fsp.mkdtemp(path.join(os.tmpdir(),'memotalk-native-'));
   t.after(()=>fsp.rm(dir,{recursive:true,force:true}));
   const realRequire=createRequire(path.resolve('windows/main.js'));
-  const electron={app:{whenReady:()=>({then(){}}),on(){},getPath:()=>dir},protocol:{registerSchemesAsPrivileged(){}},
+  const electron={app:{whenReady:()=>({then(){}}),on(){},getPath:()=>dir,setPath(){},setName(){},commandLine:{getSwitchValue:()=>dir}},protocol:{registerSchemesAsPrivileged(){}},
     dialog:{showOpenDialog:async()=>({filePaths:[dir],canceled:false})}};
   const context=vm.createContext({require:name=>name==='electron'?electron:realRequire(name),Buffer,process,console,module:{exports:{}}});
   vm.runInContext(fs.readFileSync('windows/main.js','utf8')+'\nmodule.exports={perform};',context);

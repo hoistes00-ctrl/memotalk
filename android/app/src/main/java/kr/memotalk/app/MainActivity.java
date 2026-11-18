@@ -231,7 +231,7 @@ public class MainActivity extends Activity {
         if(waitingRequestId!=-1){respond(id,null,describeFailure((Exception)nativeFailure("EBUSY","download"),"download",args),session);return;}
         waitingRequestId=id;waitingSession=session;
         waitingExportBase64=args.optString("base64", "");
-        String name=args.optString("name", "MemoTalk.zip").replaceAll("[\\\\/\\p{Cntrl}]", "_");
+        String name=args.optString("name", "Modutalk.zip").replaceAll("[\\\\/\\p{Cntrl}]", "_");
         String mime = name.endsWith(".zip") ? "application/zip" : name.endsWith(".json") ? "application/json" :
                 name.endsWith(".pdf") ? "application/pdf" : name.endsWith(".html") ? "text/html" : "application/octet-stream";
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);

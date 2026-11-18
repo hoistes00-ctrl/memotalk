@@ -5,9 +5,13 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { verifiedWrite } = require('./verified-write');
 const crypto = require('node:crypto');
+const appInfo = require('./app-info.json');
 // Explicit CLI profile override keeps packaged integration tests separate from normal notes.
 const requestedProfile=app.commandLine?.getSwitchValue('user-data-dir');
-if(requestedProfile){app.setPath('userData',path.resolve(requestedProfile));app.setPath('sessionData',path.resolve(requestedProfile));}
+// Keep the pre-rename profile even though the product/executable name changes.
+const profileDirectory=requestedProfile?path.resolve(requestedProfile):path.join(app.getPath('appData'),appInfo.windowsProfile);
+app.setPath('userData',profileDirectory);app.setPath('sessionData',profileDirectory);
+app.setName(appInfo.displayName);
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'memotalk', privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } }
@@ -76,7 +80,7 @@ async function perform(command, args = {}, ownerWindow = windowRef) {
   if (['pickFolder','disconnect'].includes(command) && mirrorLease) throw nativeError('EBUSY');
   if (command === 'pickFolder') {
     const result = await dialog.showOpenDialog(ownerWindow, {
-      title: '메모톡 저장 폴더 선택 (가능하면 빈 폴더)',
+      title: appInfo.displayName+' 저장 폴더 선택 (가능하면 빈 폴더)',
       properties: ['openDirectory', 'createDirectory']
     });
     if (result.canceled || !result.filePaths.length) return {connected:false};
@@ -91,7 +95,7 @@ async function perform(command, args = {}, ownerWindow = windowRef) {
     const name = safeDownloadName(args.name);
     const binary = Buffer.from(args.base64 || '', 'base64');
     if (binary.length > MAX_NATIVE_BYTES) throw new Error('한 번에 저장 가능한 파일은 64MB까지입니다');
-    const result = await dialog.showSaveDialog(ownerWindow, {title:'메모톡 파일 저장',defaultPath:path.join(app.getPath('downloads'),name)});
+    const result = await dialog.showSaveDialog(ownerWindow, {title:appInfo.displayName+' 파일 저장',defaultPath:path.join(app.getPath('downloads'),name)});
     if(result.canceled || !result.filePath) throw new Error('cancelled');
     await fs.writeFile(result.filePath, binary);
     return true;
@@ -163,7 +167,7 @@ app.whenReady().then(async () => {
     const win=new BrowserWindow({
       width:child?780:1120,height:child?700:800,
       minWidth:390,minHeight:480,resizable:true,maximizable:true,
-      title:child?'메모톡 · '+roomTitle:'메모톡',
+      title:child?appInfo.displayName+' · '+roomTitle:appInfo.displayName+' '+appInfo.version,
       backgroundColor:'#F5F6F8',
       webPreferences:{
         preload:path.join(__dirname,'preload.js'),

@@ -261,7 +261,7 @@
     }
     function showSettings(){
       const fields=[['poll','공유 폴더 확인 간격'],['debounce','수정 후 공유 대기 시간']];
-      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label])=>`<p><label>${label} (ms) <input data-peer="${key}" type="number" min="${TIMER_MIN}" max="${TIMER_MAX}" step="${TIMER_STEP}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ms</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>메모톡이 열린 동안 적용됩니다. 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
+      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label])=>`<p><label>${label} (ms) <input data-peer="${key}" type="number" min="${TIMER_MIN}" max="${TIMER_MAX}" step="${TIMER_STEP}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ms</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>모두톡이 열린 동안 적용됩니다. 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
       const set=(key,value)=>{if(!Number.isFinite(value)||value<TIMER_MIN||value>TIMER_MAX)return;
         settings[key]=value;localStorage.setItem('memotalk.peer.'+key,String(value));sheet.querySelector('[data-value="'+key+'"]').textContent=value+' ms';schedule();};
       sheet.querySelectorAll('[data-peer]').forEach(input=>input.oninput=()=>{if(input.value!=='')set(input.dataset.peer,Number(input.value));});
@@ -348,7 +348,7 @@
           catch(e){options.toast('그룹 합류 대기 · '+(e.code||e.message),true);}
         }
       });
-      options.menu('Windows ↔ Android 양방향 공유',items,'두 기기에서 같은 Obsidian vault 하위 폴더를 선택하세요. 메모톡 앱 사이의 변경을 주고받습니다. 충돌 시 두 원문을 보존합니다. Obsidian에서 Markdown을 직접 수정한 내용의 자동 가져오기는 별도 기능입니다.');
+      options.menu('Windows ↔ Android 양방향 공유',items,'두 기기에서 같은 Obsidian vault 하위 폴더를 선택하세요. 모두톡 앱 사이의 변경을 주고받습니다. 충돌 시 두 원문을 보존합니다. Obsidian에서 Markdown을 직접 수정한 내용의 자동 가져오기는 별도 기능입니다.');
     }
     Object.assign(client,{schedule,run,restore,menu,connect,disconnect,showHistory,joinExistingGroup});
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')schedule(TIMER_MIN);});

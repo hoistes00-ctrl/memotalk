@@ -36,7 +36,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
           npm run dist:win
           if ($LASTEXITCODE -ne 0) { throw 'electron-builder failed' }
-          $installer = Get-ChildItem -Path dist -Filter 'MemoTalk-Setup-*.exe' | Select-Object -First 1
+          $installer = Get-ChildItem -Path dist -Filter 'Modutalk-Setup-*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'MemoTalk Setup EXE not produced' }
           if ($installer.Length -ge 95000000) { throw 'EXE exceeds safe GitHub Git blob limit; use Releases instead' }
           New-Item -ItemType Directory -Force '../windows-download' | Out-Null
