@@ -22,6 +22,11 @@ async function main(){
     assert.ok(messages.includes('Android real WebView reply'),'Real Android UI reply must be readable by Windows engine');
     assert.ok(messages.includes('Windows fixture edit'),'Windows edit must survive Android receive/publication');
     assert.ok(messages.includes('Android initial'),'Android initial data must be preserved on first union');
+    const mergedRooms=Object.values(view.records).filter(record=>record.entity.kind==='room'&&record.value.name==='기기 중복 방');
+    assert.equal(mergedRooms.length,1,'Android must publish a durable single-room merge');
+    const merged=Object.values(view.records).filter(record=>record.entity.kind==='msg'&&record.entity.rid===mergedRooms[0].entity.id);
+    assert.equal(merged.length,5);assert.equal(merged.filter(m=>m.value.text==='Merge common').length,1);
+    for(const text of ['Windows merge addition','Android merge addition','Windows merge edit','Android merge edit'])assert.ok(merged.some(m=>m.value.text===text));
     console.log('Verified actual Android SAF/WebView reply and Windows-origin revisions through Windows filesystem writer and protocol.');
   }finally{
     assert.ok(path.resolve(scratch).startsWith(path.resolve(os.tmpdir())+path.sep));

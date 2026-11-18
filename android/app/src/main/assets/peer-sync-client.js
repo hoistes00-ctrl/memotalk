@@ -177,7 +177,7 @@
           const result=await client.replica.tick();client.last=result;client.lastCycleAt=new Date().toISOString();client.currentError=null;
           const waiting=result.pending+(result.blocked?.length||0);
           const foreign=Object.values(result.foreignGroups||{}).reduce((sum,count)=>sum+count,0);
-          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${waiting?' · 수신 미완료 '+waiting+'건':''}${foreign?' · 다른 그룹 원본 보존 '+foreign+'개 (자동 병합 안 함)':''} · 원격 전송 상태는 Obsidian 확인`);
+          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${result.mergedRooms?' · 중복 방 통합 '+result.mergedRooms+'개':''}${waiting?' · 수신 미완료 '+waiting+'건':''}${foreign?' · 다른 그룹 원본 보존 '+foreign+'개 (자동 병합 안 함)':''} · 원격 전송 상태는 Obsidian 확인`);
         }finally{progress({stage:'release-folder-lease'});await window.MemoTalkFS?.endMirror?.(root);}
       };
       try{
@@ -197,7 +197,7 @@
       if(group?.format!=='memotalk-peer-group'||group.version!==P.VERSION||!/^[a-zA-Z0-9_-]{1,256}$/.test(group.id))throw error('peer_group');
       let actor=localStorage.getItem(ACTOR);if(!actor){actor=crypto.randomUUID();localStorage.setItem(ACTOR,actor);}
       client.root=root;client.groupId=group.id;client.last=null;client.lastCycleAt=null;client.currentError=null;
-      client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport,onProgress:progress});
+      client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport,onProgress:progress,beforeRoomMerge:options.beforeMerge});
       localStorage.setItem(CONFIG,JSON.stringify({groupId:group.id,enabled:true}));
       await options.remember(root,group.id);client.active=true;
       reportStatus('pending',folderLabel(root)+' · 양방향 공유 연결됨');schedule();

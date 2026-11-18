@@ -76,6 +76,7 @@ async function main(){
     `);
     await until(()=>connection.evaluate("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).msgs).flat().some(m=>m.text==='Android real WebView reply')"));
     assert.equal(await connection.evaluate("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).msgs).flat().some(m=>m.text==='Windows fixture edit')"),true);
+    assert.equal(await connection.evaluate("(()=>{const d=JSON.parse(localStorage.getItem('memotalk.v1')),rs=Object.values(d.rooms).filter(r=>r.name==='기기 중복 방');if(rs.length!==1)return false;const ms=d.msgs[rs[0].id]||[];return ms.length===5&&ms.filter(m=>m.text==='Merge common').length===1&&['Windows merge addition','Android merge addition','Windows merge edit','Android merge edit'].every(text=>ms.some(m=>m.text===text));})()"),true,'Installed Windows must receive Android room merge without duplicates or lost edits');
     await connection.evaluate("document.querySelector('.room[data-id=pairedroom]').click();document.querySelector('#input').value='Windows packaged reply';document.querySelector('#input').dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#btn-send').click();true;");
     const outgoing=await until(async()=>{
       for(const name of await fs.readdir(operations)){

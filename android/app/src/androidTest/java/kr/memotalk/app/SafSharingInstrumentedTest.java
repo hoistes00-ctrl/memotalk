@@ -179,11 +179,12 @@ public class SafSharingInstrumentedTest {
         for(int i=0;i<operations.length();i++){
             JSONObject op=operations.getJSONObject(i);write("memotalk-peer-v1/operations/"+op.getString("id")+".json",op.toString().getBytes(StandardCharsets.UTF_8));
         }
-        String initial="{seeded:true,rooms:{pairedroom:{id:'pairedroom',name:'기기 간 실제 테스트',createdAt:1}},msgs:{pairedroom:[{id:'androidmemo',ts:2,text:'Android initial'}]}}";
+        String initial="{seeded:true,rooms:{pairedroom:{id:'pairedroom',name:'기기 간 실제 테스트',createdAt:1},'merge-phone':{id:'merge-phone',name:'기기 중복 방',createdAt:100}},msgs:{pairedroom:[{id:'androidmemo',ts:2,text:'Android initial'}],'merge-phone':[{id:'merge-common-p',ts:200,text:'Merge common'},{id:'merge-add-p',ts:350,text:'Android merge addition'},{id:'merge-edit-p',ts:400,text:'Android merge edit'}]}}";
         js("localStorage.setItem('memotalk.v1',JSON.stringify("+initial+"));localStorage.setItem('memotalk.nativeFolder.linkId','"+group.getString("id")+"');localStorage.setItem('memotalk.peer.config',JSON.stringify({enabled:true,groupId:'"+group.getString("id")+"'}));localStorage.setItem('memotalk.peer.poll','200');localStorage.setItem('memotalk.peer.debounce','50');location.reload();");
         waitJavaScript("JSON.parse(localStorage.getItem('memotalk.v1')).msgs.pairedroom.some(m=>m.text==='Windows fixture edit')");
         js("document.querySelector('.room[data-id=pairedroom]').click();document.querySelector('#input').value='Android real WebView reply';document.querySelector('#input').dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#btn-send').click();");
         waitJavaScript("JSON.parse(localStorage.getItem('memotalk.v1')).msgs.pairedroom.some(m=>m.text==='Android real WebView reply')");
+        waitJavaScript("(()=>{const d=JSON.parse(localStorage.getItem('memotalk.v1')),rs=Object.values(d.rooms).filter(r=>r.name==='기기 중복 방');if(rs.length!==1||!rs[0].peerMergedRooms?.length)return false;const ms=d.msgs[rs[0].id]||[];return ms.length===5&&ms.filter(m=>m.text==='Merge common').length===1&&['Windows merge addition','Android merge addition','Windows merge edit','Android merge edit'].every(text=>ms.some(m=>m.text===text));})()");
         // Native I/O is owned by the JS lease while it polls. Inspect the immutable files
         // only after the tick reports completion and before the next poll.
         waitJavaScript("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')");

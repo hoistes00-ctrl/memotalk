@@ -40,12 +40,17 @@
     if(!value||Array.isArray(value)||typeof value!=='object'||value.id!==entity.id)throw fail('peer_value');
     if(entity.kind==='room'){
       if(typeof value.name!=='string'||value.kind&&!['folder','archive'].includes(value.kind))throw fail('peer_room');
+      if(value.peerMergedRooms!==undefined&&(!Array.isArray(value.peerMergedRooms)||value.kind||
+        value.peerMergedRooms.some(id=>!validId(id)||id===entity.id)||new Set(value.peerMergedRooms).size!==value.peerMergedRooms.length))throw fail('peer_room_merge');
       delete value.last;delete value.updatedAt;
     }else{
       if(typeof(value.text??'')!=='string'||!Number.isFinite(value.ts))throw fail('peer_message');
       if(value.images!==undefined&&(!Array.isArray(value.images)||value.images.some(im=>!im||!HASH.test(im.sha256)||
           im.path!==assetPath(im.sha256,im.mime))))throw fail('peer_image');
       if(value.comments!==undefined&&(!Array.isArray(value.comments)||value.comments.some(c=>!c||!ID.test(c.id)||typeof c.text!=='string'||!Number.isFinite(c.ts))))throw fail('peer_comments');
+      if(value.peerMergeOrigins!==undefined&&(!Array.isArray(value.peerMergeOrigins)||!value.peerMergeOrigins.length||
+        value.peerMergeOrigins.some(origin=>!origin||!validId(origin.rid)||!validId(origin.id))||
+        new Set(value.peerMergeOrigins.map(canonical)).size!==value.peerMergeOrigins.length))throw fail('peer_memo_merge');
       if(Array.isArray(value.conflicts)){
         value.conflicts=value.conflicts.filter(ref=>!String(ref.id).startsWith('peer_'));
         if(!value.conflicts.length)delete value.conflicts;
@@ -128,6 +133,129 @@
     }
     return {records,heads,conflicts,pending:[...pending]};
   }
+  // Zero denotes an unknown creation time. Identity inference requires a known time.
+  const UNKNOWN_CREATION_TIME=0;
+  const knownTime=value=>Number.isFinite(value)&&value>UNKNOWN_CREATION_TIME;
+  const roomTitle=value=>value.normalize('NFC').trim().replace(/\s+/g,' ').replace(/ \(불러옴\)$/,'');
+  function mergeOrigins(item){
+    return item.value.peerMergeOrigins||[{rid:item.entity.rid,id:item.entity.id}];
+  }
+  function memoIdentity(value){
+    const copy=clone(value);
+    for(const key of ['id','comments','edited','peerMergeOrigins','conflicts'])delete copy[key];
+    copy.text=copy.text||'';copy.images=copy.images||[];
+    for(const image of copy.images){delete image.w;delete image.h;}
+    return canonical(copy);
+  }
+  async function mergeComments(items){
+    const byContent=new Map();
+    for(const item of items)for(const comment of item.value.comments||[]){
+      const value=clone(comment);delete value.id;delete value.edited;
+      const key=canonical(value),group=byContent.get(key)||new Map();byContent.set(key,group);
+      const source=entityKey(item.entity),list=group.get(source)||new Map();group.set(source,list);
+      const previous=list.get(comment.id);
+      if(!previous||(Number(comment.edited)||0)>(Number(previous.edited)||0))list.set(comment.id,comment);
+    }
+    const result=[],used=new Set();
+    for(const [key,group]of [...byContent].sort(([a],[b])=>a<b?-1:a>b?1:0)){
+      const lists=[...group.values()].map(list=>[...list.values()].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0));
+      const count=Math.max(...lists.map(list=>list.length));
+      for(let index=0;index<count;index++){
+        const copies=lists.flatMap(list=>list[index]?[list[index]]:[]).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+        const value=clone(copies[0]);
+        if(used.has(value.id))value.id='merge_'+await hash(['comment',key,index]);
+        used.add(value.id);
+        const edited=Math.max(...copies.map(c=>Number(c.edited)||0));if(edited)value.edited=edited;
+        result.push(value);
+      }
+    }
+    return result.sort((a,b)=>a.ts-b.ts||(a.id<b.id?-1:a.id>b.id?1:0));
+  }
+  async function coalesceRooms(view){
+    const desired={...view.records},rooms=new Map(),messages=new Map(),parents=new Map();
+    const find=id=>{if(!parents.has(id))parents.set(id,id);let root=id;while(parents.get(root)!==root)root=parents.get(root);while(parents.get(id)!==id){const next=parents.get(id);parents.set(id,root);id=next;}return root;};
+    const union=(a,b)=>{a=find(a);b=find(b);if(a!==b)parents.set(a<b?b:a,a<b?a:b);};
+    for(const item of Object.values(view.records)){
+      if(item.entity.kind==='room'&&!item.value.kind&&!item.value.peerConflict){rooms.set(item.entity.id,item);find(item.entity.id);}
+      if(item.entity.kind==='msg'){const list=messages.get(item.entity.rid)||[];list.push(item);messages.set(item.entity.rid,list);}
+    }
+    // Persisted aliases redirect edits made offline against an already-merged room.
+    for(const [id,item]of rooms)for(const alias of item.value.peerMergedRooms||[]){
+      const record=view.records[entityKey({kind:'room',id:alias})];
+      if(record&&(record.value.kind||record.value.peerConflict))continue;
+      union(id,alias);
+    }
+    const evidence=new Map();
+    for(const [id,item]of rooms){
+      if(!knownTime(item.value.createdAt)||!roomTitle(item.value.name))continue;
+      const key=canonical([roomTitle(item.value.name),item.value.createdAt]);
+      const times=evidence.get(key)||new Map();evidence.set(key,times);
+      for(const msg of messages.get(id)||[]){
+        if(!knownTime(msg.value.ts))continue;
+        // Same title, exact room birth time AND a shared memo birth time are
+        // required. A title match alone, empty rooms and fuzzy clocks never merge.
+        if(times.has(msg.value.ts))union(id,times.get(msg.value.ts));else times.set(msg.value.ts,id);
+      }
+    }
+    const groups=new Map();
+    for(const id of parents.keys()){const root=find(id),group=groups.get(root)||[];group.push(id);groups.set(root,group);}
+    const conflicted=new Map(view.conflicts.filter(c=>c.variants[0]?.entity.kind==='msg').map(c=>[c.key,c]));
+    let mergedRooms=0;
+    for(const members of groups.values()){
+      if(members.length===1)continue;
+      members.sort();const target=members[0];
+      const sources=members.filter(id=>rooms.has(id));if(!sources.length)continue;
+      if(sources.length===1&&sources[0]===target&&members.every(id=>id===target||!(messages.get(id)||[]).length))continue;
+      const primary=rooms.get(target)||rooms.get(sources[0]);
+      const room={...clone(primary.value),id:target,peerMergedRooms:members.filter(id=>id!==target)};
+      const tags=[...new Set(sources.flatMap(id=>rooms.get(id).value.tags||[]))].sort();
+      if(tags.length)room.tags=tags;
+      if(sources.some(id=>rooms.get(id).value.pinned))room.pinned=true;
+      for(const id of members)delete desired[entityKey({kind:'room',id})];
+      desired[entityKey({kind:'room',id:target})]={entity:{kind:'room',id:target},value:room};
+      const buckets=new Map();
+      for(const item of members.flatMap(id=>messages.get(id)||[])){
+        const key=entityKey(item.entity);
+        delete desired[key];
+        const variants=conflicted.get(key)?.variants.filter(op=>op.value!==null)||[item];
+        for(const variant of variants){
+          const signature=memoIdentity(variant.value),byRoom=buckets.get(signature)||new Map();buckets.set(signature,byRoom);
+          const list=byRoom.get(item.entity.rid)||[];list.push({entity:item.entity,value:variant.value});byRoom.set(item.entity.rid,list);
+        }
+      }
+      const used=new Set();
+      for(const [signature,byRoom]of [...buckets].sort(([a],[b])=>a<b?-1:a>b?1:0)){
+        // Keep repeated equal messages within each source room. Only copies
+        // across rooms collapse; their multiplicity is the maximum, not one.
+        const lists=[...byRoom].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([rid,list])=>{
+          const byId=new Map();for(const item of list){const same=byId.get(item.entity.id)||[];same.push(item);byId.set(item.entity.id,same);}
+          return [...byId].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([,items])=>({rid,items}));
+        });
+        const count=Math.max(...lists.map(list=>list.length));
+        for(let index=0;index<count;index++){
+          const items=lists.flatMap(list=>list[index]?.items||[]);
+          items.sort((a,b)=>(a.entity.rid===target?0:1)-(b.entity.rid===target?0:1)||(a.entity.id<b.entity.id?-1:a.entity.id>b.entity.id?1:0));
+          const chosen=items[0],value=clone(chosen.value);
+          if(value.images)for(const [position,image]of value.images.entries()){
+            for(const item of items){const other=item.value.images?.[position];
+              if(other){if(image.w===undefined&&other.w!==undefined)image.w=other.w;if(image.h===undefined&&other.h!==undefined)image.h=other.h;}
+            }
+          }
+          let id=chosen.entity.id;
+          if(used.has(id))id='merge_'+await hash([target,signature,index]);used.add(id);value.id=id;
+          const origins=new Map();for(const item of items)for(const origin of mergeOrigins(item))origins.set(canonical(origin),origin);
+          value.peerMergeOrigins=[...origins].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([,origin])=>clone(origin));
+          const comments=await mergeComments(items);if(comments.length)value.comments=comments;
+          const edited=Math.max(...items.map(item=>Number(item.value.edited)||0));if(edited)value.edited=edited;
+          const refs=new Map();for(const item of items)for(const ref of item.value.conflicts||[])refs.set(canonical(ref),ref);
+          if(refs.size)value.conflicts=[...refs].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([,ref])=>clone(ref));
+          const entity={kind:'msg',rid:target,id};desired[entityKey(entity)]={entity,value};
+        }
+      }
+      mergedRooms+=sources.filter(id=>id!==target).length;
+    }
+    return {records:desired,mergedRooms};
+  }
   async function harvest(state,current){
     const hashes=await fingerprints(current);
     const keys=new Set([...Object.keys(state.baseline),...Object.keys(hashes)]);
@@ -143,8 +271,8 @@
   }
   function sameMap(a,b){return canonical(a)===canonical(b);}
   class Replica{
-    constructor({groupId,actor,load,save,capture,apply,transport,onProgress}){
-      Object.assign(this,{groupId,actor,load,save,capture,apply,transport,onProgress});this.running=false;
+    constructor({groupId,actor,load,save,capture,apply,transport,onProgress,beforeRoomMerge}){
+      Object.assign(this,{groupId,actor,load,save,capture,apply,transport,onProgress,beforeRoomMerge});this.running=false;
     }
     progress(stage,detail={}){
       // Diagnostics must never change whether a revision is committed or published.
@@ -226,7 +354,32 @@
           }
         }
         this.progress('project-history',{revisions:Object.keys(state.operations).length});
-        const view=project(state);
+        let view=project(state),mergeBackedUp=false;
+        if(!view.pending.length){
+          this.progress('merge-shared-rooms');
+          const combined=await coalesceRooms(view),ids=[];
+          const keys=new Set([...Object.keys(view.records),...Object.keys(combined.records)]);
+          for(const key of [...keys].sort()){
+            const before=view.records[key],after=combined.records[key];
+            if(canonical(before?.value??null)===canonical(after?.value??null))continue;
+            const entity=after?.entity||before.entity;
+            const op=await operation(state.groupId,state.actor,{entity,value:after?.value??null},view.heads[key]||[]);
+            state.operations[op.id]=op;state.outbox.push(op.id);ids.push(op.id);
+          }
+          if(ids.length){
+            // Retain every original immutable revision. Persist the complete
+            // merge before publishing; a crash or failed write replays the outbox.
+            this.progress('backup-before-room-merge');
+            await this.beforeRoomMerge?.();mergeBackedUp=true;
+            await this.save(state);
+            for(const id of ids){
+              this.progress('publish-room-merge',{path:DIRECTORY+'/operations/'+id+'.json'});
+              await this.transport.put(DIRECTORY+'/operations/'+id+'.json',encoder.encode(canonical(state.operations[id])));
+            }
+            state.outbox=state.outbox.filter(id=>!ids.includes(id));
+            await this.save(state);view=project(state);
+          }
+        }
         await this.save(state);
         // Missing revisions can be delayed by transport. Do not claim complete sync.
         if(view.pending.length)return {pending:view.pending.length,blocked,foreignGroups,conflicts:view.conflicts.length,applied:false};
@@ -234,6 +387,13 @@
         const presentation=await hash(view.heads);
         const needsApply=!sameMap(hashes,desired)||snapshot.presentation!==presentation;
         if(needsApply){
+          const currentLocations=new Set(Object.values(current).map(old=>old.entity.kind==='room'?old.entity.id:old.entity.rid));
+          const receivingMerge=Object.values(view.records).some(item=>item.entity.kind==='room'&&item.value.peerMergedRooms?.length&&(
+            canonical(current[entityKey(item.entity)]?.value.peerMergedRooms||[])!==canonical(item.value.peerMergedRooms)||
+            item.value.peerMergedRooms.some(id=>currentLocations.has(id))));
+          if(receivingMerge&&!mergeBackedUp){
+            this.progress('backup-before-room-merge');await this.beforeRoomMerge?.();
+          }
           state.pending={baseline:desired,baseHeads:view.heads,presentation};
           await this.save(state);
           // Adapter must check the capture token and commit all application data atomically.
@@ -244,7 +404,8 @@
         this.progress('save-applied-history');
         await this.save(state);
         this.progress('cycle-complete',{revisions:Object.keys(state.operations).length});
-        return {pending:0,blocked,foreignGroups,conflicts:view.conflicts.length,applied:needsApply,revisions:Object.keys(state.operations).length};
+        const mergedRooms=Object.values(view.records).filter(item=>item.entity.kind==='room').reduce((total,item)=>total+(item.value.peerMergedRooms?.length||0),0);
+        return {pending:0,blocked,foreignGroups,conflicts:view.conflicts.length,applied:needsApply,revisions:Object.keys(state.operations).length,mergedRooms};
       }finally{this.running=false;}
     }
     async resolve(key,id){
@@ -270,5 +431,5 @@
     return {path:DIRECTORY+'/readable/'+op.entity.rid+'/'+op.entity.id+'/'+op.id+'.md',
       data:encoder.encode(meta+(value.text||'')+(comments?'\n\n## 댓글\n\n'+comments:'')+(images?'\n\n'+images:'')+'\n')};
   }
-  return {VERSION,GROUP_FILE,DIRECTORY,canonical,hash,assetPath,readable,entityKey,normalize,fingerprints,newState,operation,validate,project,harvest,Replica};
+  return {VERSION,GROUP_FILE,DIRECTORY,canonical,hash,assetPath,readable,entityKey,normalize,fingerprints,newState,operation,validate,project,coalesceRooms,harvest,Replica};
 });

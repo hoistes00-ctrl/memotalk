@@ -38,7 +38,7 @@ async function close(runtime){
     await until(()=>runtime.cdp.evaluate("typeof window.MemoTalkPeer==='object'"));
     const after=await runtime.cdp.evaluate("({data:JSON.parse(localStorage.getItem('memotalk.v1')),title:document.title,name:document.querySelector('h1')?.textContent})");
     assert.deepEqual(after.data.rooms,before.data.rooms);assert.deepEqual(after.data.msgs,before.data.msgs);
-    assert.equal(after.name,'모두톡');assert.equal(after.title,'모두톡 17.2.0');
+    assert.equal(after.name,'모두톡');assert.equal(after.title,'모두톡 '+JSON.parse(await fs.readFile('app-info.json','utf8')).version);
     assert.equal(await fs.readFile(path.join(profile,'native-folder.json'),'utf8'),settings);
     const result={passed:true,oldToNewProfileRetained:true,roomIdRetained:true,memoIdRetained:true,commentIdAndContentRetained:true,nativeFolderRetained:true,displayName:after.name,title:after.title};
     if(process.argv[4])await fs.writeFile(path.resolve(process.argv[4]),JSON.stringify(result,null,2));

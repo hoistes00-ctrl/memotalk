@@ -8,9 +8,14 @@ async function main(){
   const room=await P.operation(group.id,'windows-fixture',{entity:{kind:'room',id:'pairedroom'},value:{id:'pairedroom',name:'기기 간 실제 테스트',createdAt:1}});
   const original=await P.operation(group.id,'windows-fixture',{entity:{kind:'msg',rid:'pairedroom',id:'windowsmemo'},value:{id:'windowsmemo',ts:1,text:'Windows fixture original'}});
   const edit=await P.operation(group.id,'windows-fixture',{entity:original.entity,value:{...original.value,text:'Windows fixture edit',edited:2}},[original.id]);
+  const mergeRoom=await P.operation(group.id,'windows-fixture',{entity:{kind:'room',id:'merge-win'},value:{id:'merge-win',name:'기기 중복 방',createdAt:100}});
+  const mergeMemos=[];
+  for(const [id,ts,text]of [['merge-common-w',200,'Merge common'],['merge-add-w',300,'Windows merge addition'],['merge-edit-w',400,'Windows merge edit']]){
+    mergeMemos.push(await P.operation(group.id,'windows-fixture',{entity:{kind:'msg',rid:'merge-win',id},value:{id,ts,text}}));
+  }
   const filename=path.resolve('android/app/src/androidTest/assets/peer-windows.json');
   await fs.mkdir(path.dirname(filename),{recursive:true});
-  await fs.writeFile(filename,JSON.stringify({group,operations:[edit,room,original]}));
+  await fs.writeFile(filename,JSON.stringify({group,operations:[edit,room,original,mergeRoom,...mergeMemos]}));
   console.log('Generated synthetic Windows revisions for actual Android SAF/WebView tests.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

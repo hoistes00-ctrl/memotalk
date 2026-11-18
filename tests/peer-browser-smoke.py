@@ -16,6 +16,10 @@ def main():
     env = os.environ.copy()
     env.pop('MEMOTALK_TEST_ROOT', None)
     env.pop('MEMOTALK_TEST_PORT', None)
+    # Python may choose a writable fallback different from Node's TEMP on Windows.
+    # Give the child server the exact verified parent used for cleanup below.
+    for key in ('TMPDIR', 'TEMP', 'TMP'):
+        env[key] = tempfile.gettempdir()
     server = subprocess.Popen(['node', 'tests/peer-browser-server.cjs'], cwd=ROOT,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     temporary = None
@@ -188,10 +192,64 @@ def main():
             assert desktop.locator('[data-peer=poll]').input_value() == '450'
             desktop.locator('[data-reset=poll]').click()
             assert desktop.locator('[data-peer=poll]').input_value() == '3000'
+            desktop.keyboard.press('Escape')
+
+            # Actual backup imports generate different room/memo/comment IDs.
+            # Their shared birth times identify copies, while different edits survive.
+            merge_name = '같은 방 병합 시험'
+            common = {'id': 'original-common', 'ts': 6100, 'text': '겹치는 원문',
+                      'images': [{'data': image}],
+                      'comments': [{'id': 'original-comment', 'ts': 6110, 'text': '공통 댓글'}]}
+            def import_copy(page, memos):
+                backup = {'app': 'memotalk', 'version': 3, 'rooms': [
+                    {'id': 'original-room', 'name': merge_name, 'createdAt': 6000, 'msgs': memos}]}
+                page.locator('#file-backup').set_input_files({
+                    'name': 'copied-room.json', 'mimeType': 'application/json',
+                    'buffer': json.dumps(backup, ensure_ascii=False).encode('utf-8')})
+                page.get_by_role('button', name='불러오기', exact=True).click()
+
+            import_copy(desktop, [common, {'id': 'w-add', 'ts': 6200, 'text': 'PC에만 추가'},
+                                  {'id': 'edited', 'ts': 6400, 'text': 'PC에서 고친 내용'}])
+            for page in (desktop, phone):
+                page.wait_for_function('name=>Object.values(JSON.parse(localStorage.getItem("memotalk.v1")).rooms).some(r=>r.name===name)', arg=merge_name)
+                if page.locator('#btn-back').is_visible():
+                    page.locator('#btn-back').click()
+                page.locator('.room').filter(has_text=merge_name).click()
+                page.locator('#input').fill('합쳐도 남겨둘 작성 중 내용')
+            desktop.locator('#file-img').set_input_files({'name': 'pending.png', 'mimeType': 'image/png',
+                                                        'buffer': base64.b64decode(image.split(',')[1])})
+            desktop.locator('#pending img').wait_for()
+            phone_common = json.loads(json.dumps(common))
+            phone_common['comments'].append({'id': 'phone-comment', 'ts': 6120, 'text': '폰 추가 댓글'})
+            import_copy(phone, [phone_common, {'id': 'p-add', 'ts': 6300, 'text': '폰에만 추가'},
+                               {'id': 'edited', 'ts': 6400, 'text': '폰에서 고친 내용'}])
+            merged_check = '''name=>{
+                const d=JSON.parse(localStorage.getItem('memotalk.v1'));
+                const rs=Object.values(d.rooms).filter(r=>r.name===name);
+                if(rs.length!==1||!rs[0].peerMergedRooms?.length)return false;
+                const ms=d.msgs[rs[0].id]||[],common=ms.find(m=>m.text==='겹치는 원문');
+                return ms.length===5&&common?.comments?.length===2&&common.images?.[0]?.data?.startsWith('data:image/')&&
+                    ['PC에만 추가','폰에만 추가','PC에서 고친 내용','폰에서 고친 내용'].every(text=>ms.some(m=>m.text===text));
+            }'''
+            for page in (desktop, phone):
+                page.wait_for_function(merged_check, arg=merge_name)
+                assert page.locator('#input').input_value() == '합쳐도 남겨둘 작성 중 내용'
+                page.locator('#msgs').get_by_text('PC에만 추가', exact=True).wait_for()
+                page.locator('#msgs').get_by_text('폰에만 추가', exact=True).wait_for()
+            desktop.locator('#pending img').wait_for()
+            # Reimport exactly the same copy: room and memo counts must stay stable.
+            import_copy(phone, [phone_common, {'id': 'p-add', 'ts': 6300, 'text': '폰에만 추가'},
+                               {'id': 'edited', 'ts': 6400, 'text': '폰에서 고친 내용'}])
+            for page in (desktop, phone):
+                page.wait_for_function(merged_check, arg=merge_name)
+                assert page.evaluate('''async()=>{
+                    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('memotalk-safety-v17');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+                    try{return await new Promise((resolve,reject)=>{const r=db.transaction('snapshots').objectStore('snapshots').getAll();r.onsuccess=()=>resolve(r.result.some(s=>s.reason==='공유방 합치기 전 안전 백업'));r.onerror=()=>reject(r.error);});}finally{db.close();}
+                }''')
             assert not errors, errors
             readable = list(temporary.glob('windows/memotalk-peer-v1/readable/**/*.md'))
             assert readable, 'Readable Markdown revisions must exist'
-            print('BROWSER PASS: app union, bidirectional edits, offline conflict copies, restart, photos, resolution, settings and immutable Markdown.')
+            print('BROWSER PASS: app union, bidirectional edits, offline conflict copies, restart, photos, resolution, settings, copied-room union, preserved drafts/photos, repeated backup imports, safety backups and immutable Markdown.')
             browser.close()
     finally:
         server.terminate()

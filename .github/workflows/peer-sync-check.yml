@@ -43,7 +43,7 @@ jobs:
       - run: python -m playwright install chromium
       - run: python scripts/sync-app-info.py --check
       - run: node tests/check-ui.mjs
-      - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs tests/toast.test.cjs tests/peer-group-recovery.test.cjs tests/peer-client-join.test.cjs tests/peer-progress-diagnostics.test.cjs tests/app-identity.test.cjs
+      - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs tests/toast.test.cjs tests/peer-group-recovery.test.cjs tests/peer-client-join.test.cjs tests/peer-progress-diagnostics.test.cjs tests/app-identity.test.cjs tests/peer-room-merge.test.cjs
       - run: python tests/peer-browser-smoke.py
       - name: Repeat UI roundtrip with Android creating the group first
         env:

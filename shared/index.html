@@ -34,7 +34,7 @@
 .memo-sentence-toolbar button{border-radius:9px;background:var(--surface-2);padding:9px 12px}
 .memo-sentence-toolbar .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
 </style>
-<title>모두톡 17.2.0</title>
+<title>모두톡 17.3.0</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2804,6 +2804,7 @@ peerClient=window.MemoTalkPeerClient.create({
   editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
   ready:()=>S.roomsLoaded,
   applied:()=>{S.gcache=null;scheduleVaultAutoBackup();},
+  beforeMerge:()=>createVaultSnapshot('공유방 합치기 전 안전 백업',true),
   pauseLegacy:async()=>{
     if(fileMirror.busy)throw Object.assign(new Error('기존 파일 저장이 끝난 뒤 공유 연결을 다시 시도하세요.'),{code:'peer_busy'});
     clearTimeout(fileMirror.timer);fileMirror.auto=false;
@@ -3625,9 +3626,20 @@ async function boot(){
     S.folders = list.filter(r=>r.kind==='folder'); S.archives = list.filter(r=>r.kind==='archive'); S.rooms = list.filter(r=>r.kind!=='folder' && r.kind!=='archive'); S.roomsLoaded = true;
     for(const id of chosenRooms)if(!list.some(item=>item.id===id))chosenRooms.delete(id);
     renderList();
-    if (S.cur){ if (!curRoom()) closeRoom(); else renderRoomHeader(); }
+    if (S.cur){
+      if (!curRoom()){
+        const replacement=S.rooms.find(room=>room.peerMergedRooms?.includes(S.cur));
+        if(replacement){
+          const drafts=[S.drafts[replacement.id]||'',input.value].filter(Boolean);
+          S.drafts[replacement.id]=[...new Set(drafts)].join('\n');
+          const pending=S.pending;S.pending=[];
+          openRoom(replacement.id);S.pending=pending;renderPending();updateSend();
+          if(drafts.length||pending.length)toast('같은 방을 합쳤어요. 작성 중인 내용은 입력창에 유지했어요.');
+        }else closeRoom();
+      }else renderRoomHeader();
+    }
     if (pendingBootRoomId && S.roomsLoaded){
-      const boot=S.rooms.find(item=>item.id===pendingBootRoomId);
+      const boot=S.rooms.find(item=>item.id===pendingBootRoomId)||S.rooms.find(item=>item.peerMergedRooms?.includes(pendingBootRoomId));
       pendingBootRoomId=null;
       if(boot)openRoom(boot.id);
       else{app.classList.remove('list-collapsed');syncListVisibility();}
