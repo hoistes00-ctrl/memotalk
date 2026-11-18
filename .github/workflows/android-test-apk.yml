@@ -20,7 +20,7 @@ jobs:
   build-and-publish-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out MemoTalk source
+      - name: Check out Modutalk source
         uses: actions/checkout@v4
       - name: Check Android viewport/UI source assumptions
         run: node tests/check-ui.mjs
@@ -61,13 +61,13 @@ jobs:
           set -euo pipefail
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           mkdir -p release-files
-          cp android/app/build/outputs/apk/debug/app-debug.apk release-files/MemoTalk-Android-test.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-files/Modutalk-Android-test.apk
           cd release-files
-          sha256sum MemoTalk-Android-test.apk > SHA256SUMS-Android-test.txt
+          sha256sum Modutalk-Android-test.apk > SHA256SUMS-Android-test.txt
       - name: Retain APK as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MemoTalk-Android-test-apk
+          name: Modutalk-Android-test-apk
           path: |
-            release-files/MemoTalk-Android-test.apk
+            release-files/Modutalk-Android-test.apk
             release-files/SHA256SUMS-Android-test.txt
