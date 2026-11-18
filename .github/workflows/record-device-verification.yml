@@ -1,0 +1,18 @@
+name: Record Modutalk device verification
+on:
+  push:
+    branches: ['release/modutalk-v17.3.0']
+    paths:
+      - '.github/workflows/record-device-verification.yml'
+      - '.github/scripts/record-device-verification.py'
+permissions:
+  contents: write
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record device confirmation without changing downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/record-device-verification.py
