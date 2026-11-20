@@ -156,7 +156,11 @@
       if(!status.connected||!status.location?.canReveal)throw new Error('이 환경에서는 저장 폴더를 직접 열 수 없어요.');
       return ask('revealFolder',{folderToken:status.folderToken});
     },
-    diagnostics(){return {pendingOperations:Array.from(inFlight.values(),({startedMs,...entry})=>({...entry,elapsedMs:Date.now()-startedMs}))};},
+    diagnostics(){
+      let nativeProgress=null;
+      try{const raw=window.AndroidMemoTalk?.diagnostics?.();if(typeof raw==='string')nativeProgress=JSON.parse(raw);}catch(_){}
+      return {pendingOperations:Array.from(inFlight.values(),({startedMs,...entry})=>({...entry,elapsedMs:Date.now()-startedMs})),nativeProgress};
+    },
     async readFile(root,path){
       const parts=String(path).split('/').map(assertName);
       try{

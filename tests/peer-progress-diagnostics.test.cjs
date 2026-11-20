@@ -16,6 +16,10 @@ test("progress and native requests expose metadata without retaining tokens",asy
  const restored=bridge.restore();reply({connected:true,name:'test',folderToken:'DO-NOT-EXPOSE-TOKEN',atomicWrites:true});const {handle}=await restored;
  const stat=handle.getFileHandle('test.json');reply({exists:true,kind:'file'});const file=await stat;
  const read=file.getFile();let diag=bridge.diagnostics();assert.equal(diag.pendingOperations.length,1);assert.equal(diag.pendingOperations[0].command,'read');assert.equal(diag.pendingOperations[0].relativePath,'test.json');assert.ok(!JSON.stringify(diag).includes('DO-NOT-EXPOSE-TOKEN'));assert.equal(messages.filter(m=>m.command==='read').length,1);
+ sandbox.window.AndroidMemoTalk.diagnostics=()=>JSON.stringify({activeOperation:{command:'read',relativePath:'test.json',stage:'query-folder',elapsedMs:5,stageElapsedMs:3},lastCompletedOperation:null});
+ assert.equal(bridge.diagnostics().nativeProgress.activeOperation.stage,'query-folder');
+ sandbox.window.AndroidMemoTalk.diagnostics=()=>'{broken';assert.equal(bridge.diagnostics().nativeProgress,null);
+
  reply(null,{message:'missing',code:'ENOENT'});await assert.rejects(read,e=>e.name==='NotFoundError');assert.equal(bridge.diagnostics().pendingOperations.length,0);
  const countBefore=messages.length;const direct=bridge.readFile(handle,'nested/test.json');assert.equal(messages.length,countBefore+1);assert.equal(messages.at(-1).command,'read');assert.deepEqual(messages.at(-1).args.path,['nested','test.json']);reply({base64:btoa('verified')});assert.equal(new TextDecoder().decode(await direct),'verified');const noTraversal=messages.length;await assert.rejects(bridge.readFile(handle,'../bad'),e=>e.name==='TypeError');assert.equal(messages.length,noTraversal);
  console.log('PASS: stalled read exposes exact phase/path, completing read clears busy, observer failure cannot stop sync, native pending diagnostics omit tokens and clean up on rejection; no retry/publication added');

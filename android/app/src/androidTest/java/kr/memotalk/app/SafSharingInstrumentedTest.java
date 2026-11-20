@@ -125,9 +125,12 @@ public class SafSharingInstrumentedTest {
         JSONArray list=(JSONArray)command("list",args("operations"));assertEquals(1,list.length());assertEquals("first.json",list.getJSONObject(0).getString("name"));
     }
     @Test public void actualAndroidBridgeCryptoAndFolderLeaseWork()throws Exception{
-        js("localStorage.setItem('memotalk.nativeFolder.linkId','test-native-link');window.__nativeResult=null;(async()=>{const linked=await MemoTalkFS.restore();await MemoTalkFS.beginMirror(linked.handle);try{const dir=await linked.handle.getDirectoryHandle('bridge',{create:true});const file=await dir.getFileHandle('bridge.json',{create:true});const writer=await file.createWritable({expectedBytes:null});await writer.write('actual Android WebView');await writer.close();return {text:await (await file.getFile()).text(),hash:await MemoTalkPeer.hash({actual:true})};}finally{await MemoTalkFS.endMirror(linked.handle);}})().then(result=>window.__nativeResult={ok:true,result}).catch(error=>window.__nativeResult={ok:false,error:error.message,code:error.code})");
+        js("localStorage.setItem('memotalk.nativeFolder.linkId','test-native-link');window.__nativeResult=null;(async()=>{const linked=await MemoTalkFS.restore();await MemoTalkFS.beginMirror(linked.handle);try{const dir=await linked.handle.getDirectoryHandle('bridge',{create:true});const file=await dir.getFileHandle('bridge.json',{create:true});const writer=await file.createWritable({expectedBytes:null});await writer.write('actual Android WebView');await writer.close();return {text:await (await file.getFile()).text(),hash:await MemoTalkPeer.hash({actual:true}),nativeProgress:MemoTalkFS.diagnostics().nativeProgress};}finally{await MemoTalkFS.endMirror(linked.handle);}})().then(result=>window.__nativeResult={ok:true,result}).catch(error=>window.__nativeResult={ok:false,error:error.message,code:error.code})");
         waitJavaScript("window.__nativeResult!==null");JSONObject result=new JSONObject(js("window.__nativeResult"));
         assertTrue(result.toString(),result.getBoolean("ok"));assertEquals("actual Android WebView",result.getJSONObject("result").getString("text"));assertEquals(64,result.getJSONObject("result").getString("hash").length());
+        JSONObject nativeStatus=result.getJSONObject("result").getJSONObject("nativeProgress");
+        assertTrue(nativeStatus.has("activeOperation"));assertTrue(nativeStatus.has("lastCompletedOperation"));
+        assertFalse("Diagnostics must not expose the folder grant",nativeStatus.toString().contains("content://"));
     }
     @Test public void leaseIndexReadsEveryContentAndFindsLateArrivals()throws Exception{
         // Synthetic files only. A directory index must never become a byte cache.

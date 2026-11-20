@@ -50,6 +50,36 @@ public class MainActivity extends Activity {
     private static final int REQUEST_FILE = 8203;
     private static final int MAX_FILE = 64 * 1024 * 1024;
     private WebView web;
+    // Single I/O worker publishes immutable, content-free diagnostic snapshots.
+    private volatile NativeProgress nativeProgress;
+    private volatile String lastNativeResult;
+    private static final class NativeProgress {
+        final String command,path,startedAt,phase;
+        final long startedClock,phaseClock;
+        NativeProgress(String command,String path){
+            this(command,path,java.time.Instant.now().toString(),android.os.SystemClock.elapsedRealtime(),"start",android.os.SystemClock.elapsedRealtime());
+        }
+        NativeProgress(String command,String path,String startedAt,long startedClock,String phase,long phaseClock){
+            this.command=command;this.path=path;this.startedAt=startedAt;this.startedClock=startedClock;this.phase=phase;this.phaseClock=phaseClock;
+        }
+        NativeProgress phase(String next){return new NativeProgress(command,path,startedAt,startedClock,next,android.os.SystemClock.elapsedRealtime());}
+        JSONObject json() throws JSONException {
+            long now=android.os.SystemClock.elapsedRealtime();
+            return new JSONObject().put("command",command).put("relativePath",path).put("startedAt",startedAt)
+                .put("stage",phase).put("elapsedMs",Math.max(0,now-startedClock)).put("stageElapsedMs",Math.max(0,now-phaseClock));
+        }
+    }
+    private void nativePhase(String stage){NativeProgress current=nativeProgress;if(current!=null)nativeProgress=current.phase(stage);}
+    private void beginNative(String command,JSONObject args){
+        JSONArray parts=args.optJSONArray("path");StringBuilder path=new StringBuilder();
+        if(parts!=null)for(int i=0;i<parts.length();i++){if(i>0)path.append('/');path.append(parts.optString(i));}
+        nativeProgress=new NativeProgress(command,path.toString());
+    }
+    private void finishNative(){
+        NativeProgress current=nativeProgress;
+        if(current!=null)try{lastNativeResult=current.json().put("completedAt",java.time.Instant.now().toString()).toString();}catch(JSONException ignored){}
+        nativeProgress=null;
+    }
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
     private volatile Uri rootTree;
@@ -162,6 +192,13 @@ public class MainActivity extends Activity {
     }
 
     final class NativeBridge {
+        // Does not enter the I/O queue: a stalled provider call must stay observable.
+        @JavascriptInterface public String diagnostics(){
+            try{NativeProgress current=nativeProgress;String last=lastNativeResult;
+                return new JSONObject().put("activeOperation",current==null?JSONObject.NULL:current.json())
+                    .put("lastCompletedOperation",last==null?JSONObject.NULL:new JSONObject(last)).toString();
+            }catch(JSONException ignored){return "{}";}
+        }
         @JavascriptInterface public void postMessage(String payload) {
             io.execute(() -> {
                 int id = -1;
@@ -172,6 +209,7 @@ public class MainActivity extends Activity {
                     command = req.getString("command");
                     args = req.optJSONObject("args");
                     if(args==null) args = new JSONObject();
+                    beginNative(command,args);
                     if (command.equals("pickFolder")) {
                         final int callbackId=id;
                         final String requestSession=session;
@@ -187,6 +225,7 @@ public class MainActivity extends Activity {
                     }
                     respond(id, perform(command,args), null,session);
                 } catch (Exception error) { respond(id, null, describeFailure(error,command,args),session); }
+                finally{finishNative();}
             });
         }
     }
@@ -320,9 +359,11 @@ public class MainActivity extends Activity {
     private static final class Child {Uri uri;String mime;Child(Uri u,String m){uri=u;mime=m;}}
     private Child findChild(Uri dir,String name) throws Exception {
         Uri listing=DocumentsContract.buildChildDocumentsUriUsingTree(rootTree,DocumentsContract.getDocumentId(dir));
+        nativePhase("query-folder");
         try(Cursor cursor=getContentResolver().query(listing,
             new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE}, null,null,null)) {
             if(cursor==null)throw new Exception("폴더를 읽을 수 없습니다");
+            nativePhase("scan-folder");
             while(cursor.moveToNext()) {
                 if(name.equals(cursor.getString(1))) {
                     Uri uri=DocumentsContract.buildDocumentUriUsingTree(rootTree,cursor.getString(0));
@@ -335,9 +376,11 @@ public class MainActivity extends Activity {
     private Map<String,Child> readChildren(Uri dir) throws Exception {
         Uri listing=DocumentsContract.buildChildDocumentsUriUsingTree(rootTree,DocumentsContract.getDocumentId(dir));
         Map<String,Child> result=new HashMap<>();
+        nativePhase("query-folder");
         try(Cursor cursor=getContentResolver().query(listing,
             new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE},null,null,null)) {
             if(cursor==null)throw new Exception("폴더를 읽을 수 없습니다");
+            nativePhase("scan-folder");
             while(cursor.moveToNext())result.putIfAbsent(cursor.getString(1),new Child(
                 DocumentsContract.buildDocumentUriUsingTree(rootTree,cursor.getString(0)),cursor.getString(2)));
         }
@@ -439,8 +482,10 @@ public class MainActivity extends Activity {
     }
     private byte[] readDocument(Uri uri) throws Exception {
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+        nativePhase("open-read-document");
         try(InputStream stream=getContentResolver().openInputStream(uri)){
             if(stream==null)throw new FileNotFoundException("document unavailable");
+            nativePhase("read-document");
             byte[] buffer=new byte[8192];int count;
             while((count=stream.read(buffer))!=-1){bytes.write(buffer,0,count);if(bytes.size()>MAX_FILE)throw nativeFailure("EFBIG","read");}
         }
@@ -460,21 +505,21 @@ public class MainActivity extends Activity {
             private void check() throws Exception {if(!folderToken.equals(token))throw nativeFailure("ESTALE","write");}
             public byte[] readTarget() throws Exception {check();Child found=findChild(directory,name);return found==null?null:readDocument(found.uri);}
             public String createTemporary() throws Exception {
-                check();Uri created=DocumentsContract.createDocument(getContentResolver(),directory,"application/octet-stream",".memotalk-"+UUID.randomUUID()+".tmp");
+                check();nativePhase("create-temporary");Uri created=DocumentsContract.createDocument(getContentResolver(),directory,"application/octet-stream",".memotalk-"+UUID.randomUUID()+".tmp");
                 if(created==null)throw new FileNotFoundException("temporary document unavailable");return created.toString();
             }
             public void writeAndSync(String temporary,byte[] bytes) throws Exception {
-                check();try(ParcelFileDescriptor descriptor=getContentResolver().openFileDescriptor(Uri.parse(temporary),"rwt")){
+                check();nativePhase("open-write-temporary");try(ParcelFileDescriptor descriptor=getContentResolver().openFileDescriptor(Uri.parse(temporary),"rwt")){
                     if(descriptor==null)throw new FileNotFoundException("temporary descriptor unavailable");
                     try(ParcelFileDescriptor.AutoCloseOutputStream stream=new ParcelFileDescriptor.AutoCloseOutputStream(descriptor)){
-                        stream.write(bytes);stream.flush();stream.getFD().sync();
+                        nativePhase("write-temporary");stream.write(bytes);nativePhase("flush-temporary");stream.flush();nativePhase("sync-temporary");stream.getFD().sync();
                     }
                 }
             }
             public byte[] readTemporary(String temporary) throws Exception {check();return readDocument(Uri.parse(temporary));}
             public void publish(String temporary) throws Exception {
                 check();if(findChild(directory,name)!=null)throw nativeFailure("ESTALE","publish");
-                Uri published=DocumentsContract.renameDocument(getContentResolver(),Uri.parse(temporary),name);
+                nativePhase("rename-temporary");Uri published=DocumentsContract.renameDocument(getContentResolver(),Uri.parse(temporary),name);
                 if(published==null)throw new UnsupportedOperationException("provider does not support verified rename");
                 Child found=findChild(directory,name);
                 if(found==null||!found.uri.equals(published))throw nativeFailure("EIO","verify-name");
