@@ -392,7 +392,9 @@
         }
         this.progress('project-history',{revisions:Object.keys(state.operations).length});
         let view=project(state),mergeBackedUp=false;
-        if(!view.pending.length){
+        // Initial backup publication must not trigger a second unbounded merge send
+        // before incoming edits can be applied. Merge after the original queue drains.
+        if(!view.pending.length&&!state.outbox.length){
           this.progress('merge-shared-rooms');
           const combined=await coalesceRooms(view),ids=[];
           const keys=new Set([...Object.keys(view.records),...Object.keys(combined.records)]);

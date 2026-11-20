@@ -223,3 +223,21 @@ test('publication limit changes at the next cycle and rejects invalid counts',as
   limit=0;await assert.rejects(phone.replica.tick(),{code:'peer_publication_limit'});
   assert.equal(phone.state.outbox.length,7);limit=100000;assert.equal((await phone.replica.tick()).outgoingPending,0);
 });
+
+
+test('copied backup rooms cannot bypass the send budget and block the first receive',async()=>{
+  const files=new Map(),serverRoom={entity:{kind:'room',id:'incoming-room'},value:{id:'incoming-room',name:'PC의 새 방'}};
+  const incoming={entity:{kind:'msg',rid:'incoming-room',id:'incoming-note'},value:{id:'incoming-note',ts:1,text:'PC의 새 내용'}};
+  const server=fixture('server',files,[serverRoom,incoming]);await server.replica.tick();
+  const makeRoom=id=>({entity:{kind:'room',id},value:{id,name:'복사한 단어장',createdAt:100}});
+  const makeMemo=(rid,id,text,ts=200)=>({entity:{kind:'msg',rid,id},value:{id,ts,text}});
+  const local=[makeRoom('copy-a'),makeRoom('copy-b'),makeMemo('copy-a','common-a','공통'),makeMemo('copy-b','common-b','공통'),...Array.from({length:173},(_,i)=>makeMemo(i%2?'copy-a':'copy-b','copied'+i,'local '+i,300+i))];
+  const phone=fixture('phone',files,local),put=phone.transport.put;let writes=0;
+  phone.transport.put=async(...args)=>{writes++;return put(...args);};
+  const result=await phone.replica.tick();assert.equal(writes,4,'deferred room coalescing must not secretly publish another large batch');
+  assert.equal(result.outgoingPending,173);assert.equal(text(phone,'incoming-note'),'PC의 새 내용');
+  assert.equal(phone.records.filter(x=>x.entity.kind==='room'&&x.value.name==='복사한 단어장').length,2,'copies stay preserved until their initial queue drains');
+  for(let i=0;i<100&&phone.state.outbox.length;i++)await phone.replica.tick();
+  await phone.replica.tick();assert.equal(phone.records.filter(x=>x.entity.kind==='room'&&x.value.name==='복사한 단어장').length,1);
+  assert.equal(text(phone,'copied172'),'local 172');assert.equal(text(phone,'incoming-note'),'PC의 새 내용');
+});
