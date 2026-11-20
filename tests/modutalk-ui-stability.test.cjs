@@ -58,7 +58,7 @@ test('mobile chrome is scoped to active, ready Modutalk view and restored on exi
 test('only hosted UI compresses status messages; detailed diagnostics remain',()=>{
   const html=fs.readFileSync(path.join(pluginDir,'app.html'),'utf8');
   const start=html.indexOf('function fileMirrorStatus(status,message){');
-  const end=html.indexOf('\\nconst fileMirrorSupported=',start);
+  const end=html.indexOf('\nconst fileMirrorSupported=',start);
   assert.ok(start>=0&&end>start,'status function found');
   const code=html.slice(start,end);
   const bar={dataset:{}},label={textContent:'',title:''},button={disabled:false};
@@ -81,7 +81,7 @@ test('only hosted UI compresses status messages; detailed diagnostics remain',()
 
 test('style rules target mobile Modutalk immersion, not all Obsidian notes',()=>{
   const css=fs.readFileSync(path.join(pluginDir,'styles.css'),'utf8');
-  assert.match(css,/body\\.modutalk-immersive \\.mobile-navbar/);
+  assert.match(css,/body\.modutalk-immersive \.mobile-navbar/);
   assert.match(css,/data-type="modutalk-sync-view"/);
-  assert.match(css,/\\.modutalk-sync-menu-toggle/);
+  assert.match(css,/\.modutalk-sync-menu-toggle/);
 });
