@@ -6,11 +6,11 @@ const vm=require('node:vm');
 const html=fs.readFileSync('shared/index.html','utf8');
 function fixture(){
   let now=0,seq=0;const timers=new Map(),visible=[];
-  const tuning={toast:2500,toastFade:250};
-  const context=vm.createContext({tuning,
+  const tuning={toast:2500,toastFade:250,titleFont:17,titleLeading:1.4};
+  const context=vm.createContext({tuning,roomTitleMode:'full',ROOM_TITLE_ONE_LINE:1,ROOM_TITLE_TWO_LINES:2,
     setTimeout:(fn,delay)=>{const id=++seq;timers.set(id,{fn,at:now+delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    document:{body:{appendChild:el=>visible.push(el)},documentElement:{style:{setProperty(){}}},
+    document:{body:{appendChild:el=>visible.push(el)},documentElement:{dataset:{},style:{setProperty(){}}},
       createElement:()=>{const classes=new Set();const el={classList:{add:s=>classes.add(s),remove:s=>classes.delete(s),contains:s=>classes.has(s)},setAttribute(){},remove(){visible.splice(visible.indexOf(el),1);}};return el;}}});
   const source=html.slice(html.indexOf('let toastEl = null'),html.indexOf('/* ---------- sheets'));
   const apply=html.slice(html.indexOf('function applyTuning()'),html.indexOf('\napplyTuning();'));

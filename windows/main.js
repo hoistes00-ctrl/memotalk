@@ -76,7 +76,8 @@ function safeDownloadName(name) {
 }
 const MAX_NATIVE_BYTES = 64 * 1024 * 1024;
 async function perform(command, args = {}, ownerWindow = windowRef) {
-  if (command === 'hasFolder') return { connected:!!chosenFolder, name:chosenFolder?path.basename(chosenFolder):null, folderToken };
+  if (command === 'hasFolder') return { connected:!!chosenFolder, name:chosenFolder?path.basename(chosenFolder):null, folderToken,
+    location:chosenFolder?{displayPath:chosenFolder,kind:'filesystem',canReveal:true}:null };
   if (['pickFolder','disconnect'].includes(command) && mirrorLease) throw nativeError('EBUSY');
   if (command === 'pickFolder') {
     const result = await dialog.showOpenDialog(ownerWindow, {
@@ -101,6 +102,13 @@ async function perform(command, args = {}, ownerWindow = windowRef) {
     return true;
   }
   if(args.folderToken!==folderToken)throw nativeError('ESTALE');
+  if(command==='revealFolder'){
+    if(!chosenFolder)throw nativeError('ENOENT');
+    // Only the already-selected root can be opened; caller-supplied paths are ignored.
+    const failure=await shell.openPath(chosenFolder);
+    if(failure)throw Object.assign(new Error(failure),{code:'OPEN_FOLDER_FAILED'});
+    return {opened:true};
+  }
   if(command==='beginMirror'){
     if(mirrorLease)throw nativeError('EBUSY');
     mirrorLease={id:crypto.randomUUID(),owner:ownerWindow};

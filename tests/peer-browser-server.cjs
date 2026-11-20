@@ -30,12 +30,15 @@ async function start(){
   }
   async function native(device,command,args){
     const d=devices[device];if(!d)throw Error('bad device');
-    const status=()=>({connected:d.connected,name:'Synthetic '+device+' vault',folderToken:device+'-token-'+d.generation,atomicWrites:true});
+    const status=()=>({connected:d.connected,name:'Synthetic '+device+' vault',folderToken:device+'-token-'+d.generation,atomicWrites:true,
+      location:d.connected?(device==='windows'?{displayPath:path.join(root,device),kind:'filesystem',canReveal:true}:
+        {displayPath:'Documents/Obsidian/Test',documentId:'primary:Documents/Obsidian/Test',kind:'document-tree',canReveal:false}):null});
     if(command==='reloadContext'){d.generation++;d.lease=null;return true;}
     if(command==='hasFolder')return status();
     if(command==='pickFolder'){d.connected=true;return status();}
     if(command==='disconnect'){d.connected=false;return true;}
     if(args.folderToken!==device+'-token-'+d.generation)throw Object.assign(Error('stale folder'),{code:'ESTALE'});
+    if(command==='revealFolder')return {opened:true};
     if(command==='beginMirror'){if(d.lease)throw Object.assign(Error('busy'),{code:'EBUSY'});d.lease=device+'-lease';return {leaseId:d.lease};}
     if(d.lease&&args.leaseId!==d.lease)throw Object.assign(Error('busy'),{code:'EBUSY'});
     if(command==='endMirror'){d.lease=null;return true;}

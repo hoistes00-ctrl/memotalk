@@ -6,7 +6,7 @@
 <script>if(window.AndroidMemoTalk)document.documentElement.classList.add('native-android');</script>
 <style>:root{--memo-safe-top:env(safe-area-inset-top,0px);--memo-safe-right:env(safe-area-inset-right,0px);--memo-safe-bottom:env(safe-area-inset-bottom,0px);--memo-safe-left:env(safe-area-inset-left,0px);padding-top:var(--memo-safe-top);padding-bottom:var(--memo-safe-bottom)}html.native-android{--memo-safe-top:0px;--memo-safe-right:0px;--memo-safe-bottom:0px;--memo-safe-left:0px}img{max-width:100%}[hidden]{display:none!important}
 /* Optional app-launcher-like layout for the same folders and rooms. */
-.list.grid-view{display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));align-content:start;gap:12px;padding:14px 14px 24px;}
+.list.grid-view{display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));grid-auto-rows:max-content;align-content:start;gap:12px;padding:14px 14px 24px;}
 .list.grid-view .folderline{position:relative;min-height:110px;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:10px!important;border:1px solid var(--line);border-radius:18px;background:var(--surface-2);gap:2px;}
 .list.grid-view .folderline .foldtoggle{flex:initial;display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center;width:100%;min-width:0;}
 .list.grid-view .folderline .foldtoggle svg{width:42px;height:42px;}
@@ -18,7 +18,11 @@
 .list.grid-view .room .av{width:62px;height:62px;border-radius:19px;font-size:24px;}
 .list.grid-view .room .rmain{width:100%;align-items:center;}
 .list.grid-view .room .rtop{display:flex;justify-content:center;width:100%;}
-.list.grid-view .room .rname{white-space:normal;max-width:100%;font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.25;word-break:break-word;}
+.list.grid-view .room .rname{white-space:normal;max-width:100%;font-size:var(--room-title-size,inherit);display:block;overflow:visible;line-height:var(--room-title-leading,normal);word-break:keep-all;overflow-wrap:anywhere;}
+.list.grid-view .room-entry{flex-direction:column;border:1px solid var(--line);border-radius:15px;min-width:0;min-height:max-content;}
+.list.grid-view .room-entry .room{width:100%;flex:0 0 auto;}
+.list.grid-view .room-label-edit{align-self:stretch;margin:0;border-radius:0;min-height:0;padding:6px;}
+.list.grid-view .room-label-edit small{display:inline;margin-left:4px;}
 .list.grid-view .room .rtags,.list.grid-view .room .rlast,.list.grid-view .room .rtime{display:none;}
 .list.grid-view .section-label{grid-column:1/-1;padding:6px 0 0;}
 .list.grid-view .empty{grid-column:1/-1;}
@@ -34,7 +38,7 @@
 .memo-sentence-toolbar button{border-radius:9px;background:var(--surface-2);padding:9px 12px}
 .memo-sentence-toolbar .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
 </style>
-<title>모두톡 17.3.0</title>
+<title>모두톡 17.4.0</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -114,11 +118,15 @@ body{position:relative;margin:0}
 .ibtn{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--ink);flex:0 0 auto}
 .ibtn:hover{background:var(--surface-2)}
 .ibtn svg{width:22px;height:22px}
-.room-hdr{background:var(--chat);color:var(--ink)}
+.room-hdr{background:var(--chat);color:var(--ink);flex-wrap:wrap}
 .room-hdr .ibtn:hover{background:var(--pill-bg)}
-.room-title{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
-.room-title b{font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.room-title{flex:1 0 100%;order:-1;min-width:0;display:flex;flex-direction:column;line-height:var(--room-title-leading,normal)}
+.room-title b{font-weight:600;font-size:var(--room-title-size,inherit);white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
 .room-title small{font-size:12px;color:var(--meta-ink);font-variant-numeric:tabular-nums}
+.room-location-bar{flex:0 0 auto;background:var(--chat);padding-block:4px 8px;}
+.room-location-bar button{font-size:12px;color:var(--meta-ink);text-align:left;overflow-wrap:anywhere;text-decoration:underline;text-underline-offset:3px;}
+.room-location-path{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;user-select:text;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);}
+.location-target{outline:2px solid var(--ink-2);outline-offset:-2px;}
 
 /* search bars */
 .sbar{display:flex;align-items:center;gap:6px;padding-block:6px 10px;background:var(--surface)}
@@ -136,10 +144,15 @@ body{position:relative;margin:0}
 .room.on{background:var(--surface-2)}
 .av{width:46px;height:46px;border-radius:16px;display:grid;place-items:center;font-weight:600;font-size:18px;color:var(--av-ink);flex:0 0 auto}
 .rmain{flex:1;min-width:0;display:flex;flex-direction:column}
-.rtop{display:flex;align-items:center;gap:5px;min-width:0}
-.rname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtop{display:flex;align-items:flex-start;gap:5px;min-width:0}
+.rname{font-weight:600;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;font-size:var(--room-title-size,inherit);line-height:var(--room-title-leading,normal);}
 .rtop svg{width:13px;height:13px;color:var(--ink-3);flex:0 0 auto}
-.rtop .rname{flex:0 1 auto;max-width:72%}
+.rtop .rname{flex:1;min-width:0;max-width:100%}
+:root[data-title-mode="compact"] .list .room .rname{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--room-title-lines);overflow:hidden;}
+:root[data-title-mode="compact"] .list.grid-view .room .rname{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--room-title-lines);overflow:hidden;}
+.rmeta{display:flex;flex-wrap:wrap;gap:4px 10px;min-width:0;}
+.rmeta .rtime{margin:0;align-self:auto;}
+.rpath{font-size:12px;color:var(--ink-3);white-space:normal;overflow-wrap:anywhere;}
 .rtags{flex:0 1 auto;min-width:0;font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tagbar{display:flex;gap:6px;overflow-x:auto;padding-block:2px 10px;background:var(--surface);scrollbar-width:none;flex:0 0 auto}
 .tagbar::-webkit-scrollbar{display:none}
@@ -161,8 +174,8 @@ body{position:relative;margin:0}
 .section-label{font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--ink-3);padding-block:14px 6px}
 .hit{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;padding-block:10px;border-bottom:1px solid var(--line)}
 .hit:hover{background:var(--surface-2)}
-.hit .hroom{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--ink-2)}
-.hit .hroom b{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hit .hroom{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--ink-2)}
+.hit .hroom b{flex:1 0 100%;font-weight:600;font-size:var(--room-title-size,inherit);color:var(--ink);white-space:normal;overflow-wrap:anywhere;}
 .hit .htext{font-size:14px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:keep-all;overflow-wrap:anywhere}
 .empty{padding:48px 24px;text-align:center;color:var(--ink-2);display:flex;flex-direction:column;align-items:center;gap:14px}
 .empty p{margin:0;max-width:30ch;text-wrap:balance}
@@ -444,6 +457,7 @@ body{position:relative;margin:0}
         <button class="ibtn desktop-feature" id="btn-popout" aria-label="현재 메모방 새 창으로 열기" title="새 창으로 열기" type="button">▣</button>
         <button class="ibtn" id="btn-rmenu" aria-label="채팅방 메뉴"></button>
       </header>
+      <div class="room-location-bar gut"><button id="btn-room-location" type="button" aria-label="현재 폴더·저장 위치 보기" title="앱 안의 위치와 실제 저장 위치" aria-haspopup="dialog"><span id="room-location"></span> · 위치 보기</button></div>
       <div class="sbar room-sbar gut" id="rsearch" hidden>
         <label class="sfield"><span data-icon="search"></span><input id="rsearch-input" type="search" placeholder="대화 내용 검색" autocomplete="off"><span class="scount" id="rsearch-count"></span></label>
         <button class="ibtn" id="rs-up" aria-label="이전 결과"></button>
@@ -512,6 +526,18 @@ const MESSAGE_FOLLOW_EDGE = 90, IMAGE_FOLLOW_EDGE = 400;
 const FADE_DURATION = 150, SHEET_DURATION = 200, FLASH_DURATION = 1400, SPIN_DURATION = 1000;
 // A frame delta cap of 50 ms prevents jumps when a background tab resumes; higher permits larger jumps.
 const SCROLL_FRAME_CAP = 50;
+// Existing header default 17 px; larger makes room titles easier to read.
+const ROOM_TITLE_FONT_DEFAULT=17;
+// CSS font sizes accept zero or positive finite lengths; zero hides only titles.
+const ROOM_TITLE_FONT_MIN=0,ROOM_TITLE_FONT_MAX=Infinity;
+// Native number-input 'any' permits every fractional CSS pixel size.
+const ROOM_TITLE_FONT_STEP='any';
+// Custom 1.4 line-height ratio; higher leaves more space between wrapped title lines.
+const ROOM_TITLE_LEADING_DEFAULT=1.4;
+// CSS unitless line-height accepts all nonnegative finite ratios.
+const ROOM_TITLE_LEADING_MIN=0,ROOM_TITLE_LEADING_MAX=Infinity,ROOM_TITLE_LEADING_STEP='any';
+// Default shows every title line. Lower line counts show denser summaries.
+const ROOM_TITLE_MODE_DEFAULT='full',ROOM_TITLE_ONE_LINE=1,ROOM_TITLE_TWO_LINES=2;
 const MAX_FOLDER_DEPTH = 6;
 // Custom transfer limit 256 MiB; raise for larger manual packages when enough browser memory is available.
 const TRANSFER_MAX_BYTES = 256 * 1024 * 1024;
@@ -1377,8 +1403,8 @@ function renderList(){
   const rooms = sortedRooms().filter(r => !S.tagFilter || roomTags(r).some(t => sameTag(t, S.tagFilter)));
   const roomHtml=(r,depth=0)=>`<div class="room-entry"><button class="room gut${r.id === S.cur && !roomSelectMode ? ' on' : ''}${chosenRooms.has(r.id)?' selected':''}" data-id="${esc(r.id)}" data-item-id="${esc(r.id)}" aria-pressed="${roomSelectMode && chosenRooms.has(r.id)}" style="padding-left:${16+Math.min(depth,7)*13}px">
     <span class="drag-handle" aria-hidden="true" title="끌어서 메모방을 정렬하거나 폴더로 이동">⠿</span><span class="av" style="background:${avColor(r.id)}">${esc(Array.from(r.name || '?')[0])}</span>
-    <span class="rmain"><span class="rtop"><span class="rname">${esc(r.name)}</span>${r.pinned ? I.pin : ''}${roomTags(r).length ? `<span class="rtags">${esc(tagStr(r))}</span>` : ''}</span><span class="rlast">${esc(r.last || '메모 없음')}</span></span>
-    <span class="rtime">${esc(listTime(r.updatedAt || r.createdAt))}</span><span class="room-checkbox" aria-hidden="true">${chosenRooms.has(r.id)?'✓':''}</span></button>${roomLabelButton(r)}</div>`;
+    <span class="rmain"><span class="rtop"><span class="rname" title="${esc(r.name)}">${esc(r.name)}</span>${r.pinned ? I.pin : ''}</span>${roomTags(r).length ? `<span class="rtags">${esc(tagStr(r))}</span>` : ''}<span class="rlast">${esc(r.last || '메모 없음')}</span><span class="rmeta"><span class="rtime">${esc(listTime(r.updatedAt || r.createdAt))}</span><span class="rpath">${esc(roomLocationInfo(r).text)}</span></span></span>
+    <span class="room-checkbox" aria-hidden="true">${chosenRooms.has(r.id)?'✓':''}</span></button>${roomLabelButton(r)}</div>`;
   if(S.tagFilter && !roomSelectMode){listEl.innerHTML=rooms.length?rooms.map(r=>roomHtml(r)).join(''):'<div class="empty">이 라벨의 메모방이 없어요.</div>';return;}
   const html=[];const visited=new Set();
   const draw=(pid,depth)=>{
@@ -1399,6 +1425,8 @@ function renderList(){
   $('#empty-new')?.addEventListener('click',createRoom);
 }
 const tuningSchema = {
+  titleFont: ['제목 글자 크기', ROOM_TITLE_FONT_DEFAULT, ROOM_TITLE_FONT_MIN, ROOM_TITLE_FONT_MAX, ROOM_TITLE_FONT_STEP, 'px'],
+  titleLeading: ['제목 줄 간격', ROOM_TITLE_LEADING_DEFAULT, ROOM_TITLE_LEADING_MIN, ROOM_TITLE_LEADING_MAX, ROOM_TITLE_LEADING_STEP, '배'],
   hold: ['길게 누르기', HOLD_DELAY, 100, 2000, 10, 'ms'],
   distance: ['마우스 드래그 시작 거리', DRAG_DISTANCE, 1, 50, 1, 'px'],
   slop: ['터치 흔들림 허용', TOUCH_SLOP, 1, 60, 1, 'px'],
@@ -1422,6 +1450,8 @@ const tuningSchema = {
 };
 const tuning = {};
 const tuningKey = name => 'memotalk.v7.controls.' + name;
+let roomTitleMode=ROOM_TITLE_MODE_DEFAULT;
+try{const saved=localStorage.getItem('memotalk.roomTitleMode');if(['full','two','one'].includes(saved))roomTitleMode=saved;}catch(_){}
 for (const [name, definition] of Object.entries(tuningSchema)) {
   let value = definition[1];
   try {
@@ -1431,6 +1461,10 @@ for (const [name, definition] of Object.entries(tuningSchema)) {
   tuning[name] = Math.min(definition[3], Math.max(definition[2], value));
 }
 function applyTuning() {
+  document.documentElement.style.setProperty('--room-title-size',tuning.titleFont+'px');
+  document.documentElement.style.setProperty('--room-title-leading',String(tuning.titleLeading));
+  document.documentElement.dataset.titleMode=roomTitleMode==='full'?'full':'compact';
+  document.documentElement.style.setProperty('--room-title-lines',String(roomTitleMode==='one'?ROOM_TITLE_ONE_LINE:ROOM_TITLE_TWO_LINES));
   for (const name of ['fade', 'sheet', 'flash', 'spin']) document.documentElement.style.setProperty('--' + name + '-duration', tuning[name] + 'ms');
   document.documentElement.style.setProperty('--toast-fade-duration',tuning.toastFade+'ms');
   if(toastEl){
@@ -1441,7 +1475,15 @@ function applyTuning() {
 applyTuning();
 function openDragSettings() {
   clearDrag();
-  const sheet = openScrim(`<h2>조작 설정</h2><p>값은 즉시 적용되고 이 브라우저에 저장됩니다. 자동 스크롤 속도를 0으로 설정하면 꺼집니다.</p>${Object.entries(tuningSchema).map(([name, definition]) => `<div class="tuning-row"><label for="tune-${name}">${definition[0]} <output id="value-${name}">${tuning[name]} ${definition[5]}</output></label><div><input id="tune-${name}" data-tune="${name}" type="range" min="${definition[2]}" max="${definition[3]}" step="${definition[4]}" value="${tuning[name]}">${['toast','toastFade'].includes(name)?`<input id="number-${name}" data-tune="${name}" type="number" min="${definition[2]}" max="${definition[3]}" step="${definition[4]}" value="${tuning[name]}" aria-label="${definition[0]} 숫자 입력">`:''}<button data-reset="${name}" aria-label="${definition[0]} 기본값 복귀">↺</button></div></div>`).join('')}<div class="btns"><button class="ghost" id="reset-controls">전체 기본값</button><button class="ok" id="close-controls">닫기</button></div>`);
+  const sheet = openScrim(`<h2>조작 설정</h2><p>값은 즉시 적용되고 이 기기에 저장됩니다. 제목은 기본적으로 줄 수 제한 없이 모두 표시합니다.</p><div class="tuning-row"><label for="room-title-mode">목록 제목 표시 <output id="value-title-mode"></output></label><div><select id="room-title-mode"><option value="full">전체 표시 (추천)</option><option value="two">${ROOM_TITLE_TWO_LINES}줄 요약</option><option value="one">${ROOM_TITLE_ONE_LINE}줄 요약</option></select><button id="reset-title-mode" aria-label="제목 전체 표시로 복귀">↺</button></div></div>${Object.entries(tuningSchema).map(([name, definition]) => {
+    const bounded=Number.isFinite(definition[3]),max=bounded?` max="${definition[3]}"`:'';
+    return `<div class="tuning-row"><label for="${bounded?'tune-':'number-'}${name}">${definition[0]} <output id="value-${name}">${tuning[name]} ${definition[5]}</output></label><div>${bounded?`<input id="tune-${name}" data-tune="${name}" type="range" min="${definition[2]}"${max} step="${definition[4]}" value="${tuning[name]}">`:''}${!bounded||['toast','toastFade'].includes(name)?`<input id="number-${name}" data-tune="${name}" type="number" min="${definition[2]}"${max} step="${definition[4]}" value="${tuning[name]}" aria-label="${definition[0]} 숫자 입력">`:''}<button data-reset="${name}" aria-label="${definition[0]} 기본값 복귀">↺</button></div></div>`;
+  }).join('')}<div class="btns"><button class="ghost" id="reset-controls">전체 기본값</button><button class="ok" id="close-controls">닫기</button></div>`);
+  const displayMode=()=>{sheet.querySelector('#room-title-mode').value=roomTitleMode;sheet.querySelector('#value-title-mode').textContent=roomTitleMode==='full'?'전체':(roomTitleMode==='one'?ROOM_TITLE_ONE_LINE:ROOM_TITLE_TWO_LINES)+'줄';};
+  const setTitleMode=(mode,reset=false)=>{roomTitleMode=mode;applyTuning();displayMode();try{reset?localStorage.removeItem('memotalk.roomTitleMode'):localStorage.setItem('memotalk.roomTitleMode',mode);}catch(_){toast('표시는 바꿨지만 다음 실행까지 저장하지 못했어요.');}};
+  displayMode();
+  sheet.querySelector('#room-title-mode').onchange=e=>setTitleMode(e.target.value);
+  sheet.querySelector('#reset-title-mode').onclick=()=>setTitleMode(ROOM_TITLE_MODE_DEFAULT,true);
   const setValue = (name, value, reset) => {
     tuning[name] = value;
     sheet.querySelectorAll('[data-tune="'+name+'"]').forEach(control=>control.value=value);
@@ -1455,7 +1497,7 @@ function openDragSettings() {
     if(control.value!==''&&Number.isFinite(value)&&value>=definition[2]&&value<=definition[3])setValue(name,value,false);
   });
   sheet.querySelectorAll('[data-reset]').forEach(button => button.onclick = () => setValue(button.dataset.reset, tuningSchema[button.dataset.reset][1], true));
-  sheet.querySelector('#reset-controls').onclick = () => Object.entries(tuningSchema).forEach(([name, definition]) => setValue(name, definition[1], true));
+  sheet.querySelector('#reset-controls').onclick = () => {Object.entries(tuningSchema).forEach(([name, definition]) => setValue(name, definition[1], true));setTitleMode(ROOM_TITLE_MODE_DEFAULT,true);};
   sheet.querySelector('#close-controls').onclick = closeSheet;
 }
 let roomSelectMode = false;
@@ -1584,6 +1626,48 @@ function folderPath(id) {
   while (folderById(id) && !seen.has(id)) { seen.add(id); const folder = folderById(id); names.unshift(folder.name); id = folder.parentId; }
   return '최상위 / ' + names.join(' / ');
 }
+function roomLocationInfo(room){
+  const names=[],folderIds=[],seen=new Set();let id=room?.folderId,issue='';
+  while(id){
+    if(seen.has(id)){issue='폴더 구조 확인 필요';break;}
+    seen.add(id);const folder=folderById(id);
+    if(!folder){issue='폴더 정보 불러오기 필요';break;}
+    names.unshift(folder.name);folderIds.unshift(folder.id);id=folder.parentId||null;
+  }
+  const parts=['전체',...names];if(issue)parts.splice(1,0,issue);else if(!names.length)parts.push('미분류');
+  return {text:parts.join(' / '),folderIds,issue};
+}
+function revealCurrentRoomInList(){
+  const room=curRoom();if(!room)return;
+  if(!S.editing)S.drafts[S.cur]=input.value;
+  clearTimeout(gTimer);S.gq='';S.tagFilter=null;$('#gsearch-input').value='';
+  for(const id of roomLocationInfo(room).folderIds)folded[id]=false;
+  saveFolded();app.dataset.view='list';app.classList.remove('list-collapsed');syncListVisibility();renderList();
+  listEl.querySelectorAll('.location-target').forEach(el=>el.classList.remove('location-target'));
+  const target=[...listEl.querySelectorAll('[data-item-id]')].find(el=>el.dataset.itemId===room.id);
+  if(target){target.classList.add('location-target');target.scrollIntoView({block:'center',behavior:'auto'});}
+  else toast('폴더 정보를 아직 모두 받지 못해 목록에서 위치를 찾지 못했어요.');
+}
+async function showCurrentLocation(){
+  let location;
+  try{
+    location=window.MemoTalkFS?.folderLocation?await window.MemoTalkFS.folderLocation():
+      {connected:!!fileMirror.handle,name:fileMirror.handle?.name||'',displayPath:fileMirror.handle?.name||'',kind:'name-only',canReveal:false};
+  }catch(_){return toast('저장 위치를 읽지 못했어요. 파일 저장의 연결 상태를 확인해 주세요.');}
+  const room=curRoom(),internal=room?roomLocationInfo(room).text+' / '+room.name:'방을 열면 앱 안의 폴더 위치를 볼 수 있어요.';
+  const disk=location.displayPath||location.name||'';
+  const explanation=!location.connected?'현재 연결된 실제 파일 폴더가 없습니다. 앱의 메모가 없다는 뜻은 아니에요.':
+    location.kind==='filesystem'?'이 PC에서 선택한 실제 저장 폴더의 전체 경로입니다.':
+    location.kind==='document-tree'?'Android가 제공하는 문서 폴더 경로입니다. PC 경로나 추정한 /storage 경로로 바꾸지 않습니다.':
+    '이 환경은 선택한 폴더 이름만 제공합니다. 전체 디스크 경로를 추측하지 않습니다.';
+  const sheet=openScrim(`<h2>현재 폴더·저장 위치</h2>${room?`<h3>${esc(room.name)}</h3>`:''}<h3>앱 안의 위치</h3><div class="room-location-path" data-app-location>${esc(internal)}</div>${room?'<div class="btns"><button class="ghost" data-copy-app>앱 위치 복사</button><button class="ok" data-find-room>목록에서 찾기</button></div>':''}<h3>실제 저장 폴더</h3><p>${esc(explanation)}</p>${location.connected?`<div class="room-location-path" data-disk-location>${esc(disk)}</div>${location.documentId?`<p class="room-location-path" data-document-location>${esc(location.documentId)}</p>`:''}<div class="btns"><button class="ghost" data-copy-disk>저장 경로 복사</button>${location.canReveal?'<button class="ok" data-reveal-folder>탐색기에서 열기</button>':''}</div>`:''}<p>앱 안의 분류 폴더와 실제 파일 저장 폴더는 서로 다른 위치입니다.</p><div class="btns"><button class="ghost" data-close-location>닫기</button></div>`);
+  sheet.querySelector('[data-close-location]').onclick=closeSheet;
+  const bind=(selector,fn)=>{const button=sheet.querySelector(selector);if(button)button.onclick=fn;};
+  bind('[data-copy-app]',()=>copyText(internal));bind('[data-copy-disk]',()=>copyText(disk));
+  bind('[data-find-room]',()=>{closeSheet();revealCurrentRoomInList();});
+  bind('[data-reveal-folder]',async()=>{try{await window.MemoTalkFS.revealFolder();}catch(_){toast('탐색기에서 폴더를 열지 못했어요. 표시된 경로를 복사해 확인해 주세요.');}});
+}
+$('#btn-room-location').addEventListener('click',showCurrentLocation);
 $('#room-select-move').onclick = () => chooseBatchDestination();
 $('#room-select-delete').onclick = async () => {
   if (roomSelectionBusy) return;
@@ -1996,7 +2080,7 @@ async function renderGlobalResults(){
   const inScope = r => tags.every(t => roomTags(r).some(x => x.toLowerCase().startsWith(t)));
   const scoped = sortedRooms().filter(inScope);
   const scopeLabel = tags.length ? tags.map(t => '#' + t).join(' ') + ' 라벨 안에서 ' : '';
-  const roomRow = r => `<div class="room-entry"><button class="room gut" data-id="${esc(r.id)}"><span class="av" style="background:${avColor(r.id)}">${esc(Array.from(r.name)[0])}</span><span class="rmain"><span class="rtop"><span class="rname">${hl(r.name, text)}</span>${roomTags(r).length ? `<span class="rtags">${hl(tagStr(r), text)}</span>` : ''}</span><span class="rlast">${esc(r.last || '메모 없음')}</span></span></button>${roomLabelButton(r)}</div>`;
+  const roomRow = r => `<div class="room-entry"><button class="room gut" data-id="${esc(r.id)}"><span class="av" style="background:${avColor(r.id)}">${esc(Array.from(r.name)[0])}</span><span class="rmain"><span class="rtop"><span class="rname" title="${esc(r.name)}">${hl(r.name, text)}</span></span>${roomTags(r).length ? `<span class="rtags">${hl(tagStr(r), text)}</span>` : ''}<span class="rlast">${esc(r.last || '메모 없음')}</span><span class="rpath">${esc(roomLocationInfo(r).text)}</span></span></button>${roomLabelButton(r)}</div>`;
   if (!text){
     listEl.innerHTML = `<div class="section-label gut">${esc(scopeLabel)}채팅방 ${scoped.length}개</div>` + (scoped.length ? scoped.map(roomRow).join('') : `<div class="empty"><p>이 라벨이 붙은 채팅방이 없어요.</p></div>`);
     return;
@@ -2052,7 +2136,8 @@ function closeRoom(){
 $('#btn-back').addEventListener('click', () => { if (S.cur) S.drafts[S.cur] = S.editing ? '' : input.value; app.dataset.view = 'list'; renderList(); });
 function renderRoomHeader(){
   const r = curRoom(); if (!r) return;
-  $('#room-name').textContent = r.name;
+  $('#room-name').textContent = r.name;$('#room-name').title=r.name;
+  $('#room-location').textContent=roomLocationInfo(r).text;
   $('#room-sub').textContent = (S.msgsLoaded ? `메모 ${S.msgs.length}개` : '불러오는 중…') + (roomTags(r).length ? ' · ' + tagStr(r) : '');
 }
 $('#btn-rmenu').addEventListener('click', () => S.cur && roomMenu(S.cur));
@@ -2688,6 +2773,7 @@ async function showFileFolderMenu(){
   if(peerClient?.active)return peerClient.menu();
   if(window.AndroidMemoTalk){
     const items=[
+      {icon:'folder',label:'현재 폴더·저장 위치 보기',run:showCurrentLocation},
       {icon:'folder',label:'Windows ↔ Android 양방향 공유',run:()=>peerClient.menu()},
       {icon:'load',label:'마지막 저장 오류 진단',run:showMirrorDiagnostics},
       {icon:'save',label:'Markdown ZIP 다운로드 (갤럭시 호환)',run:()=>exportTransfer()},
@@ -2696,6 +2782,7 @@ async function showFileFolderMenu(){
     return menu('Android 파일 저장',items,'자동 폴더 공유는 양방향 공유로 연결하세요. 휴대폰이나 컴퓨터 중 한 기기에서 그룹을 만들고, 다른 기기에서는 내려받은 같은 폴더에 참여합니다. 기존 파일을 교체하는 일반 Markdown 폴더 저장은 Android에서 지원하지 않습니다.');
   }
   const options=[
+    {icon:'folder',label:'현재 폴더·저장 위치 보기',run:showCurrentLocation},
     {icon:'folder',label:'Windows ↔ Android 양방향 공유',run:()=>peerClient.menu()},
     {icon:'folder',label:fileMirror.handle?'다른 저장 폴더 선택':'실제 저장 폴더 연결',run:linkFileMirror},
     {icon:'edit',label:'자동 저장 간격 조절',run:showMirrorDelay},
@@ -2801,6 +2888,7 @@ peerClient=window.MemoTalkPeerClient.create({
   backend:()=>backend,engine:window.MemoTalkPeer,
   read:readMirrorFile,write:writeMirrorFile,folder:getMirrorFolder,permission:ensureMirrorPermission,
   imageData:imageDataUrl,archiveRoomId:rid=>archiveRoomId(rid),status:fileMirrorStatus,ask,menu,toast,openScrim,closeSheet,esc,
+  showLocation:showCurrentLocation,
   editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
   ready:()=>S.roomsLoaded,
   applied:()=>{S.gcache=null;scheduleVaultAutoBackup();},

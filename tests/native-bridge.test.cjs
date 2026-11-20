@@ -12,14 +12,27 @@ async function mainFixture(t) {
   const dir=await fsp.mkdtemp(path.join(os.tmpdir(),'memotalk-native-'));
   t.after(()=>fsp.rm(dir,{recursive:true,force:true}));
   const realRequire=createRequire(path.resolve('windows/main.js'));
-  const electron={app:{whenReady:()=>({then(){}}),on(){},getPath:()=>dir,setPath(){},setName(){},commandLine:{getSwitchValue:()=>dir}},protocol:{registerSchemesAsPrivileged(){}},
+  const opened=[];
+  const electron={app:{whenReady:()=>({then(){}}),on(){},getPath:()=>dir,setPath(){},setName(){},commandLine:{getSwitchValue:()=>dir}},protocol:{registerSchemesAsPrivileged(){}},shell:{openPath:async target=>{opened.push(target);return '';}},
     dialog:{showOpenDialog:async()=>({filePaths:[dir],canceled:false})}};
   const context=vm.createContext({require:name=>name==='electron'?electron:realRequire(name),Buffer,process,console,module:{exports:{}}});
   vm.runInContext(fs.readFileSync('windows/main.js','utf8')+'\nmodule.exports={perform};',context);
   const perform=context.module.exports.perform,owner={id:'owner'},other={id:'other'};
   const status=await perform('pickFolder',{},owner);
-  return {dir,perform,owner,other,folderToken:status.folderToken};
+  return {dir,perform,owner,other,opened,folderToken:status.folderToken};
 }
+
+test('storage location is the selected root and reveal ignores arbitrary caller paths',async t=>{
+  const f=await mainFixture(t),status=await f.perform('hasFolder');
+  assert.equal(status.location.displayPath,f.dir);assert.equal(status.location.kind,'filesystem');assert.equal(status.location.canReveal,true);
+  await assert.rejects(f.perform('revealFolder',{folderToken:'stale',path:['..','escape']},f.owner),{code:'ESTALE'});
+  assert.deepEqual(f.opened,[]);
+  const lease=await f.perform('beginMirror',{folderToken:f.folderToken},f.owner);
+  await f.perform('revealFolder',{folderToken:f.folderToken,path:['..','escape'],displayPath:'C:/other'},f.owner);
+  assert.deepEqual(f.opened,[f.dir],'a display action opens only the already-selected root, even during a sync lease');
+  await f.perform('endMirror',{folderToken:f.folderToken,...lease},f.owner);
+  await f.perform('disconnect',{},f.owner);assert.equal((await f.perform('hasFolder')).location,null);
+});
 
 test('native folder token prevents old window writing into newly chosen folder',async t=>{
   const f=await mainFixture(t);

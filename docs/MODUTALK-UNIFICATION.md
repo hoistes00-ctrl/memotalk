@@ -1,11 +1,11 @@
-# 모두톡 17.3.0
+# 모두톡 17.4.0
 
-현재 Windows·Android 배포는 **모두톡 17.3.0**으로 이름과 표시 버전을 통일합니다. 이름과 버전의 원본은 루트 `app-info.json`입니다. `python scripts/sync-app-info.py`로 Windows 패키지와 공용/Android 화면 사본을 맞추고 `--check`로 누락을 검사합니다. Android Gradle도 같은 정보를 읽습니다.
+현재 Windows·Android 배포는 **모두톡 17.4.0**으로 이름과 표시 버전을 통일합니다. 이름과 버전의 원본은 루트 `app-info.json`입니다. `python scripts/sync-app-info.py`로 Windows 패키지와 공용/Android 화면 사본을 맞추고 `--check`로 누락을 검사합니다. Android Gradle도 같은 정보를 읽습니다.
 
 ## 현재 업데이트 대상
 
 - Windows: 제품 이름·실행 파일·바탕화면/시작 메뉴 바로가기는 모두톡입니다. 내부 앱 ID `kr.memotalk.desktop`과 저장 프로필 `memotalk-desktop`, 기존 파일 연결은 유지합니다.
-- Android: 표시 이름은 모두톡, 버전은 17.3.0, 버전 코드는 27입니다. 현재 사용 중인 수정판의 `kr.memotalk.app.sharingpreview5.syncfix` 패키지와 기존 서명을 유지합니다. 내부 ID에 예전 이름이 남아 있는 것은 데이터를 이어받기 위한 의도적인 호환성입니다.
+- Android: 표시 이름은 모두톡, 버전은 17.4.0, 버전 코드는 28입니다. 현재 사용 중인 수정판의 `kr.memotalk.app.sharingpreview5.syncfix` 패키지와 기존 서명을 유지합니다. 내부 ID에 예전 이름이 남아 있는 것은 데이터를 이어받기 위한 의도적인 호환성입니다.
 - 다른 내부 빌드 변형도 표시 이름과 버전은 같은 값을 사용합니다. 신규 사용자에게는 현재 통합 APK 하나를 안내합니다. 개발용 별도 앱 ID의 데이터를 자동으로 합치지는 않습니다.
 
 ## 기존 데이터와 구형 앱

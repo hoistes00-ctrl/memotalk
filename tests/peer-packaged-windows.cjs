@@ -67,6 +67,8 @@ async function main(){
     await until(()=>connection.evaluate("typeof window.MemoTalkPeer==='object'&&typeof window.MemoTalkFS==='object'"));
     const status=await connection.evaluate("window.MemoTalkNative.request('hasFolder')");
     assert.equal(status.ok,true);assert.equal(status.result.connected,true,'Native settings must come from isolated test profile');
+    const location=await connection.evaluate("window.MemoTalkFS.folderLocation()");
+    assert.equal(location.displayPath,vault);assert.equal(location.kind,'filesystem');assert.equal(location.canReveal,true);
     await connection.evaluate(`
       localStorage.setItem('memotalk.v1',JSON.stringify({seeded:true,rooms:{},msgs:{}}));
       localStorage.setItem('memotalk.nativeFolder.linkId',${JSON.stringify(group.id)});

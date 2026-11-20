@@ -215,6 +215,11 @@ public class MainActivity extends Activity {
     private Exception nativeFailure(String code,String operation){return new VerifiedDocumentWriter.Failure(code,operation);}
     private JSONObject folderStatus() throws Exception {
         JSONObject obj=new JSONObject();obj.put("connected",rootTree!=null);obj.put("name",getTreeName());
+        if(rootTree!=null){
+            JSONObject location=new JSONObject();location.put("displayPath",getTreeName());
+            location.put("documentId",DocumentsContract.getTreeDocumentId(rootTree));
+            location.put("kind","document-tree");location.put("canReveal",false);obj.put("location",location);
+        }
         obj.put("folderToken",folderToken);obj.put("atomicWrites",true);return obj;
     }
     private void chooseDirectory(int id,String session) {

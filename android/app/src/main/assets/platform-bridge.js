@@ -147,6 +147,15 @@
   }
   window.MemoTalkFS = {
     restore,
+    async folderLocation(){
+      const status=await ask('hasFolder');
+      return {connected:!!status.connected,name:status.name||'',...(status.location||{displayPath:status.name||'',kind:'name-only',canReveal:false})};
+    },
+    async revealFolder(){
+      const status=await ask('hasFolder');
+      if(!status.connected||!status.location?.canReveal)throw new Error('이 환경에서는 저장 폴더를 직접 열 수 없어요.');
+      return ask('revealFolder',{folderToken:status.folderToken});
+    },
     diagnostics(){return {pendingOperations:Array.from(inFlight.values(),({startedMs,...entry})=>({...entry,elapsedMs:Date.now()-startedMs}))};},
     async readFile(root,path){
       const parts=String(path).split('/').map(assertName);

@@ -340,6 +340,7 @@
         {icon:'load',label:'공유 오류 진단',run:diagnostics},
         {icon:'edit',label:'공유 확인·반영 간격 조절',run:showSettings}
       ];
+      if(options.showLocation)items.unshift({icon:'folder',label:'현재 폴더·저장 위치 보기',run:options.showLocation});
       if(client.active)for(const [groupId,count]of Object.entries(client.last?.foreignGroups||{}))items.push({
         icon:'folder',label:'기존 그룹에 합류 · '+groupId+' ('+count+'개)',
         run:async()=>{

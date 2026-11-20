@@ -83,6 +83,11 @@ public class SafSharingInstrumentedTest {
         token=(String)nonce.get(activity);
         assertEquals("System picker must select only the new synthetic test directory","primary:Documents/"+leaf,DocumentsContract.getTreeDocumentId((Uri)root.get(activity)));
         assertTrue("Persistent tree permission must be held",target.getContentResolver().getPersistedUriPermissions().stream().anyMatch(p->p.isReadPermission()&&p.isWritePermission()&&p.getUri().equals(rootUri(activity))));
+        JSONObject location=((JSONObject)perform.invoke(activity,"hasFolder",new JSONObject())).getJSONObject("location");
+        assertEquals("document-tree",location.getString("kind"));
+        assertEquals("primary:Documents/"+leaf,location.getString("documentId"));
+        assertEquals("Documents/"+leaf,location.getString("displayPath"));
+        assertFalse(location.getBoolean("canReveal"));
     }
     private Uri rootUri(MainActivity owner){try{Field field=MainActivity.class.getDeclaredField("rootTree");field.setAccessible(true);return (Uri)field.get(owner);}catch(Exception e){throw new RuntimeException(e);}}
     @After public void tearDown(){
