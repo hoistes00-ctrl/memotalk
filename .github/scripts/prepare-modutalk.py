@@ -85,6 +85,26 @@ def publish():
         draft=True
     endpoint=collection+'/'+str(release['id'])
     files=sorted(p for p in OUTPUT.iterdir() if p.is_file())
+    if not draft:
+        # A stable release is immutable. Re-check its original bytes on a rerun.
+        expected={p.name:p for p in files}
+        assert {a['name'] for a in release['assets']}==set(expected)
+        verify=Path('verified-existing-downloads');verify.mkdir(exist_ok=False)
+        for asset in release['assets']:
+            with (verify/asset['name']).open('wb') as out:
+                subprocess.run(['gh','api','repos/'+REPO+'/releases/assets/'+str(asset['id']),'-H','Accept: application/octet-stream'],stdout=out,check=True)
+            assert asset['digest']=='sha256:'+digest(verify/asset['name'])
+        for name,local in expected.items():
+            if name not in ('build-info.json','SHA256SUMS.txt'):assert digest(verify/name)==digest(local)
+        previous=json.loads((verify/'build-info.json').read_text())
+        proposed=json.loads((OUTPUT/'build-info.json').read_text())
+        previous.pop('publicationRun');proposed.pop('publicationRun')
+        assert previous==proposed
+        recorded={name:sha for sha,name in (line.split('  ',1) for line in (verify/'SHA256SUMS.txt').read_text().splitlines())}
+        assert set(recorded)==set(expected)-{'SHA256SUMS.txt'}
+        for name,sha in recorded.items():assert digest(verify/name)==sha
+        print('Existing stable release re-downloaded and verified; all published bytes preserved.')
+        return
     if draft:
         uploaded={a['name']:a for a in release['assets']}
         for p in files:
