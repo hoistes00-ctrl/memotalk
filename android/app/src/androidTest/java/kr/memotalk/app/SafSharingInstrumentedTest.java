@@ -56,7 +56,12 @@ public class SafSharingInstrumentedTest {
         }
         Context target=instrumentation.getTargetContext();
         target.getSharedPreferences("memotalk-native",Context.MODE_PRIVATE).edit().clear().commit();
+        // Disposable emulator fixture: a locked/sleeping system picker cannot be driven.
+        // Never change the installed app's security or power settings for this test.
+        UiDevice device=UiDevice.getInstance(instrumentation);
+        device.wakeUp();device.executeShellCommand("wm dismiss-keyguard");device.pressHome();
         activity=(MainActivity)instrumentation.startActivitySync(new Intent(target,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        instrumentation.runOnMainSync(()->activity.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
         Field root=MainActivity.class.getDeclaredField("rootTree");root.setAccessible(true);
         root.set(activity,DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents","primary:Documents/"+leaf));
         Field nonce=MainActivity.class.getDeclaredField("folderToken");nonce.setAccessible(true);
@@ -70,10 +75,9 @@ public class SafSharingInstrumentedTest {
         final String oldToken=(String)nonce.get(activity);
         Method choose=MainActivity.class.getDeclaredMethod("chooseDirectory",int.class,String.class);choose.setAccessible(true);
         instrumentation.runOnMainSync(()->{try{choose.invoke(activity,999,"instrumentation-session");}catch(Exception e){throw new RuntimeException(e);}});
-        UiDevice device=UiDevice.getInstance(instrumentation);
         UiObject2 select=device.wait(Until.findObject(By.text(Pattern.compile("(?i)use this folder"))),WAIT_MS);
         if(select==null)select=device.wait(Until.findObject(By.res(Pattern.compile(".*:id/action_menu_select"))),WAIT_MS);
-        assertNotNull("System folder picker did not expose selection in "+device.getCurrentPackageName(),select);
+        if(select==null){ByteArrayOutputStream hierarchy=new ByteArrayOutputStream();device.dumpWindowHierarchy(hierarchy);fail("System folder picker did not expose selection in "+device.getCurrentPackageName()+"; hierarchy="+hierarchy.toString("UTF-8"));}
         assertTrue("Test folder is not selectable",select.isEnabled());select.click();
         UiObject2 allow=device.wait(Until.findObject(By.text(Pattern.compile("(?i)allow"))),5000);
         if(allow!=null)allow.click();
