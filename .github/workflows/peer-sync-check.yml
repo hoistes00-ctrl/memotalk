@@ -190,8 +190,8 @@ jobs:
           if (-not ([IO.Path]::GetFullPath($installTarget)).StartsWith(([IO.Path]::GetFullPath($env:RUNNER_TEMP) + [IO.Path]::DirectorySeparatorChar))) { throw 'Unsafe test install location' }
           $installer = @(Get-ChildItem windows/dist -Filter 'Modutalk-Setup-*.exe')
           if ($installer.Count -ne 1) { throw 'Expected one tested installer' }
-          $install = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S',"/D=$installTarget") -Wait -PassThru -WindowStyle Hidden
-          if ($install.ExitCode -ne 0) { throw 'Installer failed' }
+          $install = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/currentuser','/S',"/D=$installTarget") -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)" }
           node tests/peer-packaged-windows.cjs android-return (Join-Path $installTarget '모두톡.exe')
           if ($LASTEXITCODE -ne 0) { throw 'Installed Windows roundtrip failed' }
       - uses: actions/upload-artifact@v4
