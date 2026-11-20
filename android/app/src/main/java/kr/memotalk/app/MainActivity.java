@@ -36,6 +36,8 @@ import java.io.FileNotFoundException;
 import android.system.ErrnoException;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -53,6 +55,7 @@ public class MainActivity extends Activity {
     private volatile Uri rootTree;
     private volatile String folderToken=UUID.randomUUID().toString();
     private volatile String mirrorLease;
+    private final ReadDirectoryIndex<Child> readDirectoryIndex=new ReadDirectoryIndex<>();
     private int waitingRequestId = -1;
     private String waitingExportBase64;
     private String waitingSession="";
@@ -329,12 +332,29 @@ public class MainActivity extends Activity {
         }
         return null;
     }
+    private Map<String,Child> readChildren(Uri dir) throws Exception {
+        Uri listing=DocumentsContract.buildChildDocumentsUriUsingTree(rootTree,DocumentsContract.getDocumentId(dir));
+        Map<String,Child> result=new HashMap<>();
+        try(Cursor cursor=getContentResolver().query(listing,
+            new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE},null,null,null)) {
+            if(cursor==null)throw new Exception("폴더를 읽을 수 없습니다");
+            while(cursor.moveToNext())result.putIfAbsent(cursor.getString(1),new Child(
+                DocumentsContract.buildDocumentUriUsingTree(rootTree,cursor.getString(0)),cursor.getString(2)));
+        }
+        return result;
+    }
     private Child traverse(String[] segments, boolean createFile, boolean createDirectory) throws Exception {
+        return traverse(segments,createFile,createDirectory,false);
+    }
+    private Child traverse(String[] segments, boolean createFile, boolean createDirectory, boolean indexedRead) throws Exception {
         Uri dir=getRootDoc();
         if(segments.length==0)return new Child(dir,DocumentsContract.Document.MIME_TYPE_DIR);
         for(int i=0;i<segments.length;i++) {
             String name=segments[i];
-            Child child=findChild(dir,name);
+            final Uri parentUri=dir;
+            Child child=indexedRead&&mirrorLease!=null
+                ? readDirectoryIndex.find(dir.toString(),name,()->readChildren(parentUri))
+                : findChild(dir,name);
             if(child==null && (i<segments.length-1 || createDirectory || createFile)) {
                 if(i<segments.length-1) {
                     // A read/stat of a missing descendant must not create folders or report EIO.
@@ -363,11 +383,25 @@ public class MainActivity extends Activity {
         if(!folderToken.equals(args.optString("folderToken")))throw nativeFailure("ESTALE",command);
         if(command.equals("beginMirror")){
             if(mirrorLease!=null)throw nativeFailure("EBUSY",command);
-            mirrorLease=UUID.randomUUID().toString();JSONObject result=new JSONObject();result.put("leaseId",mirrorLease);return result;
+            readDirectoryIndex.clear();mirrorLease=UUID.randomUUID().toString();JSONObject result=new JSONObject();result.put("leaseId",mirrorLease);return result;
         }
         if(mirrorLease!=null&&!mirrorLease.equals(args.optString("leaseId")))throw nativeFailure("EBUSY",command);
-        if(command.equals("endMirror")){mirrorLease=null;return true;}
+        if(command.equals("endMirror")){mirrorLease=null;readDirectoryIndex.clear();return true;}
         String[] path=checkedParts(args.optJSONArray("path"),command.equals("list")||command.equals("stat"));
+        if(command.equals("read")) {
+            Child document=traverse(path,false,false,true);
+            if(document==null)throw new FileNotFoundException("NotFoundError");
+            byte[] data;
+            try{data=readDocument(document.uri);}
+            catch(FileNotFoundException changed){
+                // A provider may replace a document ID during Obsidian download.
+                readDirectoryIndex.clear();document=traverse(path,false,false,true);
+                if(document==null)throw new FileNotFoundException("NotFoundError");
+                data=readDocument(document.uri);
+            }
+            JSONObject result=new JSONObject();result.put("base64",Base64.encodeToString(data,Base64.NO_WRAP));return result;
+        }
+        if(command.equals("write")||command.equals("mkdir")||command.equals("remove"))readDirectoryIndex.clear();
         Child child=traverse(path,false,command.equals("mkdir"));
         if(command.equals("stat")) return child==null?nodeInfo(false,null):nodeInfo(true,child.mime);
         if(command.equals("touch"))throw nativeFailure("EOPNOTSUPP",command);
@@ -390,15 +424,6 @@ public class MainActivity extends Activity {
                 }
             }
             return result;
-        }
-        if(command.equals("read")) {
-            ByteArrayOutputStream out=new ByteArrayOutputStream();
-            try(InputStream in=getContentResolver().openInputStream(child.uri)) {
-                if(in==null)throw new Exception("파일 읽기 실패");
-                byte[] buffer=new byte[8192];int n;
-                while((n=in.read(buffer))!=-1) {out.write(buffer,0,n);if(out.size()>MAX_FILE)throw new Exception("64MB 제한 초과");}
-            }
-            JSONObject result=new JSONObject();result.put("base64",Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP));return result;
         }
         if(command.equals("remove")) {
             if(DocumentsContract.Document.MIME_TYPE_DIR.equals(child.mime)) {

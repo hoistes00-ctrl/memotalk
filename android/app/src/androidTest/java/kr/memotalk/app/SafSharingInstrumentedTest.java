@@ -129,6 +129,31 @@ public class SafSharingInstrumentedTest {
         waitJavaScript("window.__nativeResult!==null");JSONObject result=new JSONObject(js("window.__nativeResult"));
         assertTrue(result.toString(),result.getBoolean("ok"));assertEquals("actual Android WebView",result.getJSONObject("result").getString("text"));assertEquals(64,result.getJSONObject("result").getString("hash").length());
     }
+    @Test public void leaseIndexReadsEveryContentAndFindsLateArrivals()throws Exception{
+        // Synthetic files only. A directory index must never become a byte cache.
+        final int COUNT=64;
+        for(int i=0;i<COUNT;i++)write("indexed/op"+i+".json",("original "+i).getBytes(StandardCharsets.UTF_8));
+        JSONObject lease=(JSONObject)command("beginMirror",new JSONObject());
+        String leaseId=lease.getString("leaseId");
+        try{
+            for(int i=0;i<COUNT;i++){
+                JSONObject result=(JSONObject)command("read",args("indexed","op"+i+".json").put("leaseId",leaseId));
+                assertEquals("original "+i,new String(Base64.decode(result.getString("base64"),Base64.DEFAULT),StandardCharsets.UTF_8));
+            }
+            String parentId=DocumentsContract.getTreeDocumentId(rootUri(activity))+"/indexed";
+            Uri parent=DocumentsContract.buildDocumentUriUsingTree(rootUri(activity),parentId);
+            Uri incoming=DocumentsContract.createDocument(activity.getContentResolver(),parent,"application/octet-stream","late.json");
+            assertNotNull(incoming);
+            try(java.io.OutputStream out=activity.getContentResolver().openOutputStream(incoming,"wt")){out.write("late arrival".getBytes(StandardCharsets.UTF_8));}
+            JSONObject late=(JSONObject)command("read",args("indexed","late.json").put("leaseId",leaseId));
+            assertEquals("late arrival",new String(Base64.decode(late.getString("base64"),Base64.DEFAULT),StandardCharsets.UTF_8));
+            Uri first=DocumentsContract.buildDocumentUriUsingTree(rootUri(activity),parentId+"/op0.json");
+            try(java.io.OutputStream out=activity.getContentResolver().openOutputStream(first,"wt")){out.write("fresh bytes".getBytes(StandardCharsets.UTF_8));}
+            JSONObject fresh=(JSONObject)command("read",args("indexed","op0.json").put("leaseId",leaseId));
+            assertEquals("fresh bytes",new String(Base64.decode(fresh.getString("base64"),Base64.DEFAULT),StandardCharsets.UTF_8));
+        }finally{command("endMirror",new JSONObject().put("leaseId",leaseId));}
+        assertTrue(((JSONObject)command("read",args("indexed","late.json"))).has("base64"));
+    }
     @Test public void readingMissingAncestorDoesNotCreateFolders()throws Exception{
         JSONObject before=(JSONObject)command("stat",args("never-created","child","memo.md"));
         assertFalse(before.getBoolean("exists"));

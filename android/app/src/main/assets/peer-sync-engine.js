@@ -9,6 +9,8 @@
   const VERSION=1;
   // Defensive protocol limits, independent of polling or interaction timing.
   const MAX_OPERATION_BYTES=4*1024*1024,MAX_PARENTS=1024,MAX_OPERATIONS=100000;
+  // Durable receive batch size (backend default). Lower = less restart work, more local writes.
+  const RECEIVE_CHECKPOINT_OPERATIONS=32;
   const GROUP_FILE='memotalk-peer-group.json',DIRECTORY='memotalk-peer-v1';
   const HASH=/^[a-f0-9]{64}$/;
   const ID=/^[a-zA-Z0-9_-]{1,256}$/;
@@ -340,7 +342,7 @@
         state.foreignOperations||={};
         this.progress('list-operations');
         const names=await this.transport.list(DIRECTORY+'/operations');
-        let examined=0;
+        let examined=0,receivedSinceCheckpoint=0;
         for(const name of names){
           examined++;
           if(!name.endsWith('.json'))continue;
@@ -363,13 +365,20 @@
             if(op.groupId!==this.groupId){
               foreignGroups[op.groupId]=(foreignGroups[op.groupId]||0)+1;
               if(match)state.foreignOperations[op.id]=op.groupId;
-              continue;
+            }else{
+              if(state.operations[op.id]&&canonical(state.operations[op.id])!==canonical(op))throw fail('peer_integrity',filename);
+              state.operations[op.id]=op;
             }
-            if(state.operations[op.id]&&canonical(state.operations[op.id])!==canonical(op))throw fail('peer_integrity',filename);
-            state.operations[op.id]=op;
+            receivedSinceCheckpoint++;
           }catch(error){
             if(error.code==='EACCES'||error.code==='EPERM'||error.name==='NotAllowedError')throw error;
             blocked.push({path:filename,code:error.code||'peer_partial'});
+          }
+          if(receivedSinceCheckpoint>=RECEIVE_CHECKPOINT_OPERATIONS){
+            this.progress('save-received-checkpoint',{examined,total:names.length,revisions:Object.keys(state.operations).length});
+            // Persist verified history only. Application notes and the capture baseline
+            // remain untouched until the complete projection is ready to commit.
+            await this.save(state);receivedSinceCheckpoint=0;
           }
         }
         this.progress('project-history',{revisions:Object.keys(state.operations).length});

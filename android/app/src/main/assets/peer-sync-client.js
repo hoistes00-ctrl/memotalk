@@ -40,7 +40,11 @@
       if(value!==null&&Number.isFinite(Number(value)))settings[key]=Math.max(TIMER_MIN,Math.min(TIMER_MAX,Number(value)));
     }
     const client={active:false,busy:false,root:null,groupId:null,replica:null,timer:null,last:null};
-    function progress(value){client.progress={...value,at:value.at||new Date().toISOString()};}
+    function progress(value){
+      client.progress={...value,at:value.at||new Date().toISOString()};
+      if(value.stage==='read-operation')reportStatus('pending',folderLabel(client.root)+' · 공유 기록 확인 중 '+value.examined+' / '+value.total+' · 전체 확인 후 메모에 반영합니다');
+      else if(value.stage==='save-received-checkpoint')reportStatus('pending',folderLabel(client.root)+' · 읽은 공유 기록 중간 저장 · 다음 실행에서 이어 읽습니다');
+    }
     function reportStatus(state,message){
       client.status={state,message,at:new Date().toISOString()};options.status(state,message);
     }

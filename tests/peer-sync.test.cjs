@@ -162,3 +162,28 @@ test('interruption midway through publishing replays identical revisions without
   assert.deepEqual(Object.keys(a.state.operations).sort(),ids);assert.equal(a.state.outbox.length,0);
   assert.equal(text(a,'m'),'durable local edit');
 });
+
+
+test('interrupted first receive resumes durable verified batches without importing a backup',async()=>{
+  const files=new Map(),source=fixture('source',files,[room,...Array.from({length:80},(_,i)=>memo('checkpoint'+i,'preserved '+i))]);
+  await source.replica.tick();
+  const phone=fixture('phone',files,[]),read=phone.transport.read;let reads=0;
+  phone.transport.read=async path=>{if(++reads===41)throw Object.assign(Error('revoked'),{code:'EACCES'});return read(path);};
+  await assert.rejects(phone.replica.tick(),{code:'EACCES'});
+  const durable=Object.keys(phone.state.operations).length;
+  assert.ok(durable>0&&durable<81,'validated receive batch must survive interruption');
+  assert.deepEqual(phone.records,[],'a partial receive must not replace application notes');
+  assert.deepEqual(phone.state.baseline,{},'checkpoint is not an applied baseline');
+  phone.transport.read=async path=>{reads++;return read(path);};reads=0;
+  phone.replica=phone.makeReplica();await phone.replica.tick();
+  assert.equal(reads,81-durable,'restart must skip all durable verified records');
+  assert.equal(phone.records.length,81);assert.equal(text(phone,'checkpoint79'),'preserved 79');
+  const originalReads=reads;await phone.replica.tick();assert.equal(reads,originalReads,'completed history is not reread');
+});
+
+test('receive checkpoint failure stops before applying and is not hidden as a bad remote file',async()=>{
+  const files=new Map(),source=fixture('source',files,[room,...Array.from({length:40},(_,i)=>memo('save'+i,'data'))]);
+  await source.replica.tick();const phone=fixture('phone',files,[]);
+  phone.replica.save=async state=>{if(Object.keys(state.operations).length)throw Object.assign(Error('disk full'),{code:'ENOSPC'});phone.state=copy(state);};
+  await assert.rejects(phone.replica.tick(),{code:'ENOSPC'});assert.equal(phone.writes,0);assert.deepEqual(phone.records,[]);
+});
