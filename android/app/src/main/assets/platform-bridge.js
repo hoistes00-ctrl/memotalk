@@ -147,6 +147,9 @@
   }
   window.MemoTalkFS = {
     restore,
+    launchMode:()=>ask('getLaunchMode'),
+    configureLaunchMode:(enabled,vaultName)=>ask('configureObsidianView',{enabled,vaultName}),
+    openSyncView:()=>ask('openObsidianView'),
     async folderLocation(){
       const status=await ask('hasFolder');
       return {connected:!!status.connected,name:status.name||'',...(status.location||{displayPath:status.name||'',kind:'name-only',canReveal:false})};
@@ -158,7 +161,7 @@
     },
     diagnostics(){
       let nativeProgress=null;
-      try{const raw=window.AndroidMemoTalk?.diagnostics?.();if(typeof raw==='string')nativeProgress=JSON.parse(raw);}catch(_){}
+      try{const raw=window.AndroidMemoTalk?.diagnostics?.()??window.MemoTalkNative?.diagnostics?.();nativeProgress=typeof raw==='string'?JSON.parse(raw):raw||null;}catch(_){}
       return {pendingOperations:Array.from(inFlight.values(),({startedMs,...entry})=>({...entry,elapsedMs:Date.now()-startedMs})),nativeProgress};
     },
     async readFile(root,path){

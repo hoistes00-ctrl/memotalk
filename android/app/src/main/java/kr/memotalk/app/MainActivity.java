@@ -96,6 +96,17 @@ public class MainActivity extends Activity {
         // Keep the message history scrollable above the on-screen keyboard.
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         prefs = getSharedPreferences("memotalk-native", MODE_PRIVATE);
+        try{
+            android.content.pm.ShortcutManager shortcuts=getSystemService(android.content.pm.ShortcutManager.class);
+            android.content.pm.ShortcutInfo nativeNotes=new android.content.pm.ShortcutInfo.Builder(this,"native-notes")
+                .setShortLabel(getString(R.string.native_notes_shortcut)).setIcon(android.graphics.drawable.Icon.createWithResource(this,R.drawable.ic_memotalk))
+                .setIntent(new Intent(this,MainActivity.class).setAction(Intent.ACTION_VIEW).putExtra("openNative",true)).build();
+            shortcuts.setDynamicShortcuts(java.util.Collections.singletonList(nativeNotes));
+        }catch(RuntimeException ignored){}
+        if(prefs.getBoolean("obsidianSyncView",false)&&!getIntent().getBooleanExtra("openNative",false)){
+            if(openObsidianView(prefs.getString("obsidianVaultName",""))){finish();return;}
+            android.widget.Toast.makeText(this,"Obsidian을 열지 못해 기존 메모 화면을 엽니다.",android.widget.Toast.LENGTH_LONG).show();
+        }
         String saved = prefs.getString("rootTree", null);
         if (saved != null) rootTree = Uri.parse(saved);
         web = new WebView(this);
@@ -418,6 +429,17 @@ public class MainActivity extends Activity {
         return null;
     }
     private Object perform(String command,JSONObject args) throws Exception {
+        if(command.equals("getLaunchMode"))return new JSONObject().put("enabled",prefs.getBoolean("obsidianSyncView",false)).put("vaultName",prefs.getString("obsidianVaultName",""));
+        if(command.equals("configureObsidianView")){
+            boolean enabled=args.optBoolean("enabled",false);String vault=args.optString("vaultName","").trim();
+            if(enabled&&(vault.isEmpty()||vault.length()>256||vault.matches("(?s).*[\\p{Cntrl}].*")))throw new Exception("Obsidian 볼트 이름을 확인하세요.");
+            if(!prefs.edit().putBoolean("obsidianSyncView",enabled).putString("obsidianVaultName",vault).commit())throw new Exception("시작 화면 설정을 저장하지 못했습니다.");
+            return true;
+        }
+        if(command.equals("openObsidianView")){
+            String vault=prefs.getString("obsidianVaultName","");
+            runOnUiThread(()->{if(!openObsidianView(vault))android.widget.Toast.makeText(this,"Obsidian을 열지 못했습니다. 기존 메모는 보존되어 있습니다.",android.widget.Toast.LENGTH_LONG).show();});return true;
+        }
         if(command.equals("hasFolder"))return folderStatus();
         if(command.equals("disconnect")){
             if(mirrorLease!=null)throw nativeFailure("EBUSY",command);
@@ -527,6 +549,13 @@ public class MainActivity extends Activity {
             public void cleanupTemporary(String temporary) throws Exception {DocumentsContract.deleteDocument(getContentResolver(),Uri.parse(temporary));}
         },content,expected);
         return true;
+    }
+    private boolean openObsidianView(String vault){
+        if(vault==null||vault.trim().isEmpty())return false;
+        try{
+            Uri uri=new Uri.Builder().scheme("obsidian").authority("modutalk").appendQueryParameter("vault",vault).build();
+            startActivity(new Intent(Intent.ACTION_VIEW,uri).setPackage("md.obsidian").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;
+        }catch(ActivityNotFoundException|SecurityException error){return false;}
     }
     @Override public void onBackPressed() {
         if(web==null){super.onBackPressed();return;}

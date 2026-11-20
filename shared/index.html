@@ -38,7 +38,7 @@
 .memo-sentence-toolbar button{border-radius:9px;background:var(--surface-2);padding:9px 12px}
 .memo-sentence-toolbar .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
 </style>
-<title>모두톡 17.4.2</title>
+<title>모두톡 17.5.0</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1115,6 +1115,11 @@ const S = {
   focusMsg: null, forceBottom: false,
 };
 const app = $('#app'), listEl = $('#list'), msgsEl = $('#msgs'), input = $('#input');
+// Hosted views may be closed as tabs. Keep text drafts in this view's scoped storage.
+const HOSTED_DRAFT_KEY='memotalk.hosted.textDrafts';
+if(window.MemoTalkHostCapabilities){try{const saved=JSON.parse(localStorage.getItem(HOSTED_DRAFT_KEY)||'{}');for(const [id,text]of Object.entries(saved))if(typeof text==='string')S.drafts[id]=text;}catch(_){};}
+function persistHostedDrafts(){if(!window.MemoTalkHostCapabilities)return;try{localStorage.setItem(HOSTED_DRAFT_KEY,JSON.stringify(S.drafts));}catch(_){toast('작성 중인 글의 임시 저장 공간이 부족해요. 화면을 닫기 전에 메모를 보내 주세요.');}}
+window.addEventListener('pagehide',()=>{if(S.cur&&!S.editing)S.drafts[S.cur]=input.value;persistHostedDrafts();});
 const curRoom = () => S.rooms.find(r => r.id === S.cur);
 /* Electron child windows carry a room identifier, not memo content, in the URL hash. */
 const bootRoomId = window.MemoTalkNative ? new URLSearchParams(location.hash.slice(1)).get('room') : null;
@@ -1134,7 +1139,7 @@ $('#btn-toggle-list').addEventListener('click',()=>{
   syncListVisibility();
 });
 syncListVisibility();
-$('#btn-popout').hidden=!window.MemoTalkNative;
+$('#btn-popout').hidden=!window.MemoTalkNative||window.MemoTalkHostCapabilities?.openRoomWindow===false;
 $('#btn-popout').addEventListener('click',async()=>{
   if(!window.MemoTalkNative||!S.cur)return;
   try{await window.MemoTalkNative.request('openRoomWindow',{roomId:S.cur,title:curRoom()?.name||'메모방'});}
@@ -1660,6 +1665,7 @@ async function showCurrentLocation(){
   const explanation=!location.connected?'현재 연결된 실제 파일 폴더가 없습니다. 앱의 메모가 없다는 뜻은 아니에요.':
     location.kind==='filesystem'?'이 PC에서 선택한 실제 저장 폴더의 전체 경로입니다.':
     location.kind==='document-tree'?'Android가 제공하는 문서 폴더 경로입니다. PC 경로나 추정한 /storage 경로로 바꾸지 않습니다.':
+    location.kind==='obsidian-vault'?'Obsidian 볼트 이름과 그 안의 공유 폴더 위치입니다. 이 화면과 Obsidian 전송이 같은 앱에서 실행됩니다.':
     '이 환경은 선택한 폴더 이름만 제공합니다. 전체 디스크 경로를 추측하지 않습니다.';
   const sheet=openScrim(`<h2>현재 폴더·저장 위치</h2>${room?`<h3>${esc(room.name)}</h3>`:''}<h3>앱 안의 위치</h3><div class="room-location-path" data-app-location>${esc(internal)}</div>${room?'<div class="btns"><button class="ghost" data-copy-app>앱 위치 복사</button><button class="ok" data-find-room>목록에서 찾기</button></div>':''}<h3>실제 저장 폴더</h3><p>${esc(explanation)}</p>${location.connected?`<div class="room-location-path" data-disk-location>${esc(disk)}</div>${location.documentId?`<p class="room-location-path" data-document-location>${esc(location.documentId)}</p>`:''}<div class="btns"><button class="ghost" data-copy-disk>저장 경로 복사</button>${location.canReveal?'<button class="ok" data-reveal-folder>탐색기에서 열기</button>':''}</div>`:''}<p>앱 안의 분류 폴더와 실제 파일 저장 폴더는 서로 다른 위치입니다.</p><div class="btns"><button class="ghost" data-close-location>닫기</button></div>`);
   sheet.querySelector('[data-close-location]').onclick=closeSheet;
@@ -2106,6 +2112,7 @@ async function renderGlobalResults(){
 /* ---------- room view ---------- */
 function openRoom(id, opts={}){
   if (S.cur && S.cur !== id) S.drafts[S.cur] = S.editing ? '' : input.value;
+  persistHostedDrafts();
   if (S.cur !== id){
     S.unsubMsgs?.(); S.unsubMsgs = null;
     S.cur = id; S.msgs = []; S.msgsLoaded = false; memoUserReading = false;
@@ -2486,7 +2493,7 @@ function updateSend(){
 }
 // Distinguish typing after Send from the original message, even if the text looks identical.
 let composerRevision = 0;
-input.addEventListener('input', () => { composerRevision++; autosize(); updateSend(); });
+input.addEventListener('input', () => { composerRevision++; if(S.cur&&!S.editing){S.drafts[S.cur]=input.value;persistHostedDrafts();} autosize(); updateSend(); });
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && isFinePointer()){ e.preventDefault(); send(); }
   if (e.key === 'Escape' && S.editing){ e.stopPropagation(); cancelEdit(); }
@@ -2595,6 +2602,7 @@ async function send(){
       autosize();
     }
     if (S.drafts[rid] === originalInput || !S.drafts[rid]) S.drafts[rid] = '';
+    persistHostedDrafts();
     // Remove only attachments that actually went out; keep newer attachments.
     S.pending = S.pending.filter(p => !pend.includes(p));
     pend.forEach(p => URL.revokeObjectURL(p.url));
@@ -2885,11 +2893,29 @@ async function runFileMirror(interactive=false){
   }
 }
 
+async function showSingleScreenSettings(){
+  const native=window.MemoTalkFS;
+  try{
+    const mode=await native.launchMode();
+    const sheet=openScrim('<h2>모두톡 한 화면 자동 동기화</h2><p>먼저 Obsidian에 모두톡 동기화 화면 플러그인을 설치하고, 같은 공유 폴더를 연결하세요. 모두톡 아이콘이 그 화면을 열도록 설정합니다. 기존 앱의 메모는 보존됩니다.</p><p>Obsidian 볼트 이름</p><input data-vault aria-label="Obsidian 볼트 이름"><div class="btns"><button data-enable class="ok">이 볼트에서 한 화면으로 시작</button><button data-disable class="ghost">기존 앱 화면으로 시작</button><button data-close class="ghost">닫기</button></div><p>기존 메모 화면은 모두톡 아이콘을 길게 누른 뒤 ‘기존 메모 보기’로 열 수 있습니다.</p>');
+    sheet.querySelector('[data-vault]').value=mode.vaultName||'';
+    sheet.querySelector('[data-close]').onclick=closeSheet;
+    sheet.querySelector('[data-disable]').onclick=async()=>{await native.configureLaunchMode(false,'');closeSheet();toast('기존 앱 화면으로 시작하도록 저장했어요.');};
+    sheet.querySelector('[data-enable]').onclick=async()=>{try{
+      if(S.sending||S.editing||input.value||S.pending.length)throw Error('작성 중인 내용을 먼저 저장해 주세요.');
+      const state=peerClient.groupId?await window.MemoTalkPeerClient.stateStore(peerClient.groupId):null;
+      if(!peerClient.active||!state||state.outbox?.length||state.pending)throw Error('현재 공유 기록의 저장이 끝난 뒤 다시 열어 주세요.');
+      const vault=sheet.querySelector('[data-vault]').value.trim();if(!vault)throw Error('Obsidian 볼트 이름을 입력해 주세요.');
+      await native.configureLaunchMode(true,vault);await native.openSyncView();
+    }catch(e){toast(e.message||'시작 화면 설정을 확인해 주세요.');}};
+  }catch(e){toast('이 앱에서는 시작 화면을 변경할 수 없어요.');}
+}
 peerClient=window.MemoTalkPeerClient.create({
   backend:()=>backend,engine:window.MemoTalkPeer,
   read:readMirrorFile,write:writeMirrorFile,folder:getMirrorFolder,permission:ensureMirrorPermission,
   imageData:imageDataUrl,archiveRoomId:rid=>archiveRoomId(rid),status:fileMirrorStatus,ask,menu,toast,openScrim,closeSheet,esc,
   showLocation:showCurrentLocation,
+  showSingleScreen:window.AndroidMemoTalk?showSingleScreenSettings:null,
   editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
   ready:()=>S.roomsLoaded,
   applied:()=>{S.gcache=null;scheduleVaultAutoBackup();},

@@ -32,7 +32,12 @@ package['scripts'].update({'prestart':'python ../scripts/sync-app-info.py --chec
 write('windows/package.json',json.dumps(package,ensure_ascii=False,indent=2)+'\n')
 write('windows/app-info.json',json.dumps(INFO,ensure_ascii=False,indent=2)+'\n')
 downloads={'displayName':INFO['displayName'],'version':INFO['version'],'repository':'hoistes00-ctrl/memotalk','tag':'modutalk-v'+INFO['version'],'files':{'windows':'Modutalk-Setup-'+INFO['version']+'-x64.exe','android':'Modutalk-Android-'+INFO['version']+'.apk','portable':'Modutalk-Portable-'+INFO['version']+'-x64.exe'}}
+downloads['files']['obsidian']='Modutalk-Obsidian-'+INFO['version']+'.zip'
 write('docs/downloads.json',json.dumps(downloads,ensure_ascii=False,indent=2)+'\n')
+plugin_manifest=ROOT/'obsidian/modutalk-sync-view/manifest.json'
+if plugin_manifest.exists():
+    manifest=json.loads(plugin_manifest.read_text(encoding='utf-8'));manifest['version']=INFO['version']
+    write('obsidian/modutalk-sync-view/manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
 write('docs/index.html',(ROOT/'docs/modutalk-download.html').read_text(encoding='utf-8'))
 landing=(ROOT/'index.html').read_text(encoding='utf-8').replace('메모톡',INFO['displayName'])
 write('index.html',landing)

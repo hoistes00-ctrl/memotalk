@@ -1,10 +1,10 @@
 # 모두톡
 
-Windows·Android를 **모두톡 17.4.2**이라는 같은 이름과 버전으로 제공합니다. 메모방·댓글·폴더·라벨·첨부·백업과 Obsidian 공유 폴더 기반 양방향 변경 이력을 지원합니다.
+Windows·Android를 **모두톡 17.5.0**이라는 같은 이름과 버전으로 제공합니다. 휴대폰 한 화면 모드는 메모 화면과 Obsidian 전송을 같은 앱에서 실행합니다. [설치·기존 데이터 보존 안내](docs/ONE-SCREEN-SYNC.md)를 확인하세요.
 
 ## 다운로드
 
-[모두톡 17.4.2 릴리스](https://github.com/hoistes00-ctrl/memotalk/releases/tag/modutalk-v17.4.2)에서 Windows 설치형·무설치형과 Android APK, 체크섬을 제공합니다. [통합 안내 페이지 소스](docs/modutalk-download.html)도 같은 버전 정보로 구성됩니다. 과거 릴리스는 이력으로 보존하며 현재 통합 버전과 구분합니다.
+[모두톡 17.5.0 릴리스](https://github.com/hoistes00-ctrl/memotalk/releases/tag/modutalk-v17.5.0)에서 Windows 설치형·무설치형, Android APK, Obsidian 플러그인과 체크섬을 제공합니다. [통합 안내 페이지 소스](docs/modutalk-download.html)도 같은 버전 정보로 구성됩니다. 과거 릴리스는 이력으로 보존합니다.
 
 현재 수정판은 기존 앱 ID·서명·Windows 프로필을 유지하는 업데이트입니다. 이름 변경을 위해 원본 앱·공유 그룹·메모를 삭제하거나 초기화하지 마세요. 별도 구형 앱의 데이터는 자동으로 합쳐지지 않습니다. [통합 및 데이터 호환 안내](docs/MODUTALK-UNIFICATION.md)를 확인하세요.
 

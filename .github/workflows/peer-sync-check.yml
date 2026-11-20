@@ -6,6 +6,8 @@ on:
     paths:
       - 'app-info.json'
       - 'scripts/sync-app-info.py'
+      - 'scripts/build-obsidian-view.py'
+      - 'obsidian/**'
       - 'shared/**'
       - 'windows/**'
       - '.github/scripts/*sharing*'
@@ -16,6 +18,8 @@ on:
     paths:
       - 'app-info.json'
       - 'scripts/sync-app-info.py'
+      - 'scripts/build-obsidian-view.py'
+      - 'obsidian/**'
       - 'shared/**'
       - 'windows/**'
       - 'android/**'
@@ -42,6 +46,8 @@ jobs:
       - run: python -m pip install playwright
       - run: python -m playwright install chromium
       - run: python scripts/sync-app-info.py --check
+      - run: python scripts/build-obsidian-view.py --check
+      - run: node --test tests/obsidian-host.test.cjs
       - run: node tests/check-ui.mjs
       - run: node --test tests/mirror.test.cjs tests/native-bridge.test.cjs tests/peer-sync.test.cjs tests/peer-backend.test.cjs tests/peer-connection.test.cjs tests/toast.test.cjs tests/peer-group-recovery.test.cjs tests/peer-client-join.test.cjs tests/peer-progress-diagnostics.test.cjs tests/app-identity.test.cjs tests/peer-room-merge.test.cjs tests/room-location.test.cjs
       - run: python tests/location-title-browser.py
