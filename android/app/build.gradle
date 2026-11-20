@@ -1,21 +1,29 @@
 plugins { id 'com.android.application' }
 
+def appInfo = new groovy.json.JsonSlurper().parse(rootProject.file('../app-info.json'))
+
 // Never commit the signing keystore or passwords. Supply them via environment variables.
 def releaseKeystore = System.getenv('MEMOTALK_KEYSTORE_FILE')
 def releasePassword = System.getenv('MEMOTALK_KEYSTORE_PASSWORD')
 def releaseAlias = System.getenv('MEMOTALK_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('MEMOTALK_KEY_PASSWORD')
 def canSignRelease = releaseKeystore && releasePassword && releaseAlias && releaseKeyPassword
+// Opt-in isolated install for owners whose previous ephemeral signing key is unavailable.
+// The existing preview application and its data remain installed and unchanged.
+def migrationPreview = providers.gradleProperty('memotalkMigrationPreview').orElse('true').get().toBoolean()
 
 android {
     namespace 'kr.memotalk.app'
     compileSdk 35
+    testBuildType 'sharingPreview'
     defaultConfig {
         applicationId 'kr.memotalk.app'
         minSdk 26
         targetSdk 35
-        versionCode 18
-        versionName '17.0.2'
+        versionCode (appInfo.androidVersionCode as int)
+        versionName appInfo.version
+        manifestPlaceholders = [applicationLabel:appInfo.displayName]
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     signingConfigs {
         release {
@@ -32,6 +40,13 @@ android {
             // Debug builds use a separate app ID: install alongside existing MemoTalk without overwriting its notes.
             applicationIdSuffix '.test'
         }
+        sharingPreview {
+            initWith debug
+            applicationIdSuffix migrationPreview ? '.sharingpreview5.syncfix' : '.sharingpreview5'
+            manifestPlaceholders = [applicationLabel:appInfo.displayName]
+            matchingFallbacks = ['debug']
+            signingConfig canSignRelease ? signingConfigs.release : signingConfigs.debug
+        }
         release {
             minifyEnabled false
             if (canSignRelease) signingConfig signingConfigs.release
@@ -41,4 +56,11 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
 }

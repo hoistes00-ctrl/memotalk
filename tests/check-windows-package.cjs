@@ -1,0 +1,20 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const asar = require('../windows/node_modules/@electron/asar');
+const packaged = path.resolve(process.argv[2]||'windows/dist/win-unpacked/resources');
+const archive = path.join(packaged, 'app.asar');
+for (const name of ['main.js', 'preload.js', 'verified-write.js', 'app-info.json']) {
+  assert.deepEqual(asar.extractFile(archive, name), fs.readFileSync(path.join('windows', name)), name + ' must match tested source');
+}
+for (const name of ['index.html', 'platform-bridge.js', 'mirror-engine.js', 'peer-sync-engine.js', 'peer-sync-client.js']) {
+  assert.deepEqual(fs.readFileSync(path.join(packaged, 'web', name)), fs.readFileSync(path.join('shared', name)), name + ' must match tested UI');
+}
+const builtPackage = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
+const sourcePackage = JSON.parse(fs.readFileSync('windows/package.json', 'utf8'));
+assert.equal(builtPackage.version, sourcePackage.version, 'Packaged version must match preview');
+const appInfo=JSON.parse(fs.readFileSync('app-info.json','utf8'));
+assert.equal(builtPackage.version,appInfo.version);
+assert.equal(JSON.parse(asar.extractFile(archive,'app-info.json').toString('utf8')).displayName,appInfo.displayName);
+console.log('Verified packaged native writer, UI, snapshot engine and preview version.');

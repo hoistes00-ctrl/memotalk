@@ -1,0 +1,3 @@
+.modutalk-sync-content{padding:0!important;display:flex;flex-direction:column;height:100%;overflow:hidden}
+.modutalk-sync-status{flex:none;padding:var(--size-2-2) var(--size-4-2);color:var(--text-muted);background:var(--background-secondary);overflow-wrap:anywhere}
+.modutalk-sync-frame{flex:1;min-height:0;width:100%;border:0;background:var(--background-primary)}

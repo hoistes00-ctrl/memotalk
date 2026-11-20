@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <application android:label="메모톡" android:icon="@drawable/ic_memotalk"
+    <application android:label="${applicationLabel}" android:icon="@drawable/ic_memotalk"
         android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:configChanges="keyboardHidden|orientation|screenSize">
             <intent-filter>

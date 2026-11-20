@@ -3,7 +3,15 @@ const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('e
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { verifiedWrite } = require('./verified-write');
 const crypto = require('node:crypto');
+const appInfo = require('./app-info.json');
+// Explicit CLI profile override keeps packaged integration tests separate from normal notes.
+const requestedProfile=app.commandLine?.getSwitchValue('user-data-dir');
+// Keep the pre-rename profile even though the product/executable name changes.
+const profileDirectory=requestedProfile?path.resolve(requestedProfile):path.join(app.getPath('appData'),appInfo.windowsProfile);
+app.setPath('userData',profileDirectory);app.setPath('sessionData',profileDirectory);
+app.setName(appInfo.displayName);
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'memotalk', privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } }
@@ -12,6 +20,9 @@ let windowRef;
 const memoWindows=new Set();
 const settingsPath = () => path.join(app.getPath('userData'), 'native-folder.json');
 let chosenFolder = null;
+let folderToken = crypto.randomUUID();
+let mirrorLease = null;
+const nativeError = code => Object.assign(new Error(code), {code});
 async function loadFolder() {
   try {
     const obj = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
@@ -40,6 +51,7 @@ function verifyPath(parts, allowRoot = false) {
 }
 async function assertNoSymlinks(target) {
   const base = path.resolve(chosenFolder);
+  if ((await fs.lstat(base)).isSymbolicLink()) throw Object.assign(new Error('심볼릭 링크는 지원하지 않아요'), {code:'ELOOP'});
   let at = base;
   const parts = path.relative(base, target).split(path.sep).filter(Boolean);
   for (const part of parts) {
@@ -64,27 +76,46 @@ function safeDownloadName(name) {
 }
 const MAX_NATIVE_BYTES = 64 * 1024 * 1024;
 async function perform(command, args = {}, ownerWindow = windowRef) {
-  if (command === 'hasFolder') return { connected:!!chosenFolder, name:chosenFolder?path.basename(chosenFolder):null };
+  if (command === 'hasFolder') return { connected:!!chosenFolder, name:chosenFolder?path.basename(chosenFolder):null, folderToken,
+    location:chosenFolder?{displayPath:chosenFolder,kind:'filesystem',canReveal:true}:null };
+  if (['pickFolder','disconnect'].includes(command) && mirrorLease) throw nativeError('EBUSY');
   if (command === 'pickFolder') {
     const result = await dialog.showOpenDialog(ownerWindow, {
-      title: '메모톡 저장 폴더 선택 (가능하면 빈 폴더)',
+      title: appInfo.displayName+' 저장 폴더 선택 (가능하면 빈 폴더)',
       properties: ['openDirectory', 'createDirectory']
     });
     if (result.canceled || !result.filePaths.length) return {connected:false};
+    if(mirrorLease)throw nativeError('EBUSY');
     chosenFolder = result.filePaths[0];
+    folderToken = crypto.randomUUID();
     await persistFolder();
-    return {connected:true, name:path.basename(chosenFolder)};
+    return {connected:true, name:path.basename(chosenFolder), folderToken};
   }
-  if (command === 'disconnect') { chosenFolder = null; await persistFolder(); return true; }
+  if (command === 'disconnect') { chosenFolder = null; folderToken=crypto.randomUUID(); await persistFolder(); return true; }
   if (command === 'download') {
     const name = safeDownloadName(args.name);
     const binary = Buffer.from(args.base64 || '', 'base64');
     if (binary.length > MAX_NATIVE_BYTES) throw new Error('한 번에 저장 가능한 파일은 64MB까지입니다');
-    const result = await dialog.showSaveDialog(ownerWindow, {title:'메모톡 파일 저장',defaultPath:path.join(app.getPath('downloads'),name)});
+    const result = await dialog.showSaveDialog(ownerWindow, {title:appInfo.displayName+' 파일 저장',defaultPath:path.join(app.getPath('downloads'),name)});
     if(result.canceled || !result.filePath) throw new Error('cancelled');
     await fs.writeFile(result.filePath, binary);
     return true;
   }
+  if(args.folderToken!==folderToken)throw nativeError('ESTALE');
+  if(command==='revealFolder'){
+    if(!chosenFolder)throw nativeError('ENOENT');
+    // Only the already-selected root can be opened; caller-supplied paths are ignored.
+    const failure=await shell.openPath(chosenFolder);
+    if(failure)throw Object.assign(new Error(failure),{code:'OPEN_FOLDER_FAILED'});
+    return {opened:true};
+  }
+  if(command==='beginMirror'){
+    if(mirrorLease)throw nativeError('EBUSY');
+    mirrorLease={id:crypto.randomUUID(),owner:ownerWindow};
+    return {leaseId:mirrorLease.id};
+  }
+  if(mirrorLease&&(mirrorLease.owner!==ownerWindow||args.leaseId!==mirrorLease.id))throw nativeError('EBUSY');
+  if(command==='endMirror'){mirrorLease=null;return true;}
   const p = verifyPath(args.path, command==='list' || command==='stat');
   await assertNoSymlinks(p);
   if(command==='stat') return nativeStat(p);
@@ -111,11 +142,9 @@ async function perform(command, args = {}, ownerWindow = windowRef) {
   if(command==='write') {
     const data=Buffer.from(args.base64 || '', 'base64');
     if(data.length>MAX_NATIVE_BYTES) throw new Error('파일이 너무 큽니다 (64MB 제한)');
-    // Write via temporary file and replace; index is committed last by the HTML layer.
-    const tmp=p+'.memotalk-tmp-'+crypto.randomBytes(6).toString('hex');
-    try { await fs.writeFile(tmp,data,{flag:'wx'}); await fs.rename(tmp,p); }
-    finally {await fs.rm(tmp,{force:true}).catch(()=>{});}
-    return true;
+    if (!Object.hasOwn(args, 'expectedBase64')) throw Object.assign(new Error('쓰기 기준값이 필요합니다'), {code:'EINVAL'});
+    const expected = args.expectedBase64 === null ? null : Buffer.from(args.expectedBase64, 'base64');
+    return verifiedWrite(p, data, expected);
   }
   if(command==='remove') {
     const entry = await nativeStat(p);
@@ -146,7 +175,7 @@ app.whenReady().then(async () => {
     const win=new BrowserWindow({
       width:child?780:1120,height:child?700:800,
       minWidth:390,minHeight:480,resizable:true,maximizable:true,
-      title:child?'메모톡 · '+roomTitle:'메모톡',
+      title:child?appInfo.displayName+' · '+roomTitle:appInfo.displayName+' '+appInfo.version,
       backgroundColor:'#F5F6F8',
       webPreferences:{
         preload:path.join(__dirname,'preload.js'),
@@ -154,7 +183,10 @@ app.whenReady().then(async () => {
       }
     });
     memoWindows.add(win);
-    win.on('closed',()=>{memoWindows.delete(win);if(windowRef===win)windowRef=null;});
+    const releaseLease=()=>{if(mirrorLease?.owner===win)mirrorLease=null;};
+    win.webContents.on('render-process-gone',releaseLease);
+    win.webContents.on('did-start-loading',releaseLease);
+    win.on('closed',()=>{releaseLease();memoWindows.delete(win);if(windowRef===win)windowRef=null;});
     win.webContents.setWindowOpenHandler(({url})=>{
       if(url.startsWith('https://')||url.startsWith('http://'))shell.openExternal(url);
       return {action:'deny'};
@@ -180,7 +212,14 @@ app.whenReady().then(async () => {
       createMemoWindow(id,title);
       return {opened:true};
     }
-    return perform(request.command,args,owner);
+    // Electron strips custom Error fields on rejected invoke(). Use a serializable envelope.
+    try { return {ok:true, result:await perform(request.command,args,owner)}; }
+    catch(error) {
+      return {ok:false, error:{message:String(error.message), code:error.code||error.name||'UNKNOWN',
+        errno:error.errno, syscall:error.syscall, operation:error.operation||request.command,
+        relativePath:Array.isArray(args.path)?args.path.join('/'):'',
+        path:error.path, dest:error.dest}};
+    }
   });
   windowRef=createMemoWindow();
 });

@@ -1,0 +1,9 @@
+{
+  "id": "modutalk-sync-view",
+  "name": "모두톡 동기화 화면",
+  "version": "17.5.0",
+  "minAppVersion": "1.5.0",
+  "description": "모두톡 메모 화면과 Obsidian Sync를 같은 앱에서 실행합니다. 기존 공유 기록과 원본을 보존합니다.",
+  "author": "Modutalk",
+  "isDesktopOnly": false
+}

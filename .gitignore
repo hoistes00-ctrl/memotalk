@@ -51,3 +51,14 @@ id_ed25519
 *.db
 *.db-wal
 *.db-shm
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/
+output/local-diagnostics/
+
+# Generated synthetic emulator fixture and runtime outputs
+android/app/src/androidTest/assets/peer-windows.json
+peer-returned/
+android-return/
+__pycache__/
