@@ -10,6 +10,10 @@
   const TIMER_MIN=0,TIMER_MAX=2147483647;
   // Number input default increment, in milliseconds; higher makes adjustments coarser.
   const TIMER_STEP=1;
+  // App fairness default: lower = more frequent incoming checks during a bulk send.
+  const PUBLISH_BATCH_DEFAULT=4;
+  // Engine-valid operation counts. Higher allows larger outgoing batches.
+  const PUBLISH_BATCH_MIN=1,PUBLISH_BATCH_MAX=100000,PUBLISH_BATCH_STEP=1;
   // Custom display defaults (no library defaults): higher shows longer memo/actor previews.
   const HISTORY_PREVIEW_CHARS=100,ACTOR_PREVIEW_CHARS=8,ROOM_PREVIEW_CHARS=120;
   const DB='memotalk-peer-sync-v1',CONFIG='memotalk.peer.config',ACTOR='memotalk.peer.actor';
@@ -34,15 +38,19 @@
   }
   function create(options){
     const P=options.engine||window.MemoTalkPeer;
-    const settings={poll:POLL_DEFAULT,debounce:DEBOUNCE_DEFAULT};
+    const settings={poll:POLL_DEFAULT,debounce:DEBOUNCE_DEFAULT,publishBatch:PUBLISH_BATCH_DEFAULT};
     for(const key of Object.keys(settings)){
       const value=localStorage.getItem('memotalk.peer.'+key);
-      if(value!==null&&Number.isFinite(Number(value)))settings[key]=Math.max(TIMER_MIN,Math.min(TIMER_MAX,Number(value)));
+      if(value!==null&&Number.isFinite(Number(value))){
+        const n=Number(value);settings[key]=key==='publishBatch'?Math.max(PUBLISH_BATCH_MIN,Math.min(PUBLISH_BATCH_MAX,Math.trunc(n))):Math.max(TIMER_MIN,Math.min(TIMER_MAX,n));
+      }
     }
     const client={active:false,busy:false,root:null,groupId:null,replica:null,timer:null,last:null};
     function progress(value){
       client.progress={...value,at:value.at||new Date().toISOString()};
-      if(value.stage==='read-operation')reportStatus('pending',folderLabel(client.root)+' · 공유 기록 확인 중 '+value.examined+' / '+value.total+' · 전체 확인 후 메모에 반영합니다');
+      if(value.stage==='publish-operation')reportStatus('pending',folderLabel(client.root)+' · 변경 기록 보내는 중 '+value.completed+' / '+value.total+' · 이번에는 '+value.batchTotal+'개까지 보낸 뒤 받은 기록을 확인합니다');
+      else if(value.stage==='save-published-checkpoint')reportStatus('pending',folderLabel(client.root)+' · 보낸 지점 저장 · 남은 기록 '+value.remaining+'개');
+      else if(value.stage==='read-operation')reportStatus('pending',folderLabel(client.root)+' · 공유 기록 확인 중 '+value.examined+' / '+value.total+' · 전체 확인 후 메모에 반영합니다');
       else if(value.stage==='save-received-checkpoint')reportStatus('pending',folderLabel(client.root)+' · 읽은 공유 기록 중간 저장 · 다음 실행에서 이어 읽습니다');
     }
     function reportStatus(state,message){
@@ -179,9 +187,9 @@
           const groupBytes=await read(P.GROUP_FILE),group=groupBytes&&JSON.parse(decoder.decode(groupBytes));
           if(group?.id!==client.groupId||group.format!=='memotalk-peer-group'||group.version!==P.VERSION)throw error('peer_group_changed',P.GROUP_FILE);
           const result=await client.replica.tick();client.last=result;client.lastCycleAt=new Date().toISOString();client.currentError=null;
-          const waiting=result.pending+(result.blocked?.length||0);
+          const waiting=result.pending+(result.blocked?.length||0)+(result.outgoingPending||0);
           const foreign=Object.values(result.foreignGroups||{}).reduce((sum,count)=>sum+count,0);
-          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${result.mergedRooms?' · 중복 방 통합 '+result.mergedRooms+'개':''}${waiting?' · 수신 미완료 '+waiting+'건':''}${foreign?' · 다른 그룹 원본 보존 '+foreign+'개 (자동 병합 안 함)':''} · 원격 전송 상태는 Obsidian 확인`);
+          reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${result.mergedRooms?' · 중복 방 통합 '+result.mergedRooms+'개':''}${result.pending+(result.blocked?.length||0)?' · 수신 미완료 '+(result.pending+(result.blocked?.length||0))+'건':''}${result.outgoingPending?' · 보내기 대기 '+result.outgoingPending+'개':''}${foreign?' · 다른 그룹 원본 보존 '+foreign+'개 (자동 병합 안 함)':''} · 원격 전송 상태는 Obsidian 확인`);
         }finally{progress({stage:'release-folder-lease'});await window.MemoTalkFS?.endMirror?.(root);}
       };
       try{
@@ -201,7 +209,7 @@
       if(group?.format!=='memotalk-peer-group'||group.version!==P.VERSION||!/^[a-zA-Z0-9_-]{1,256}$/.test(group.id))throw error('peer_group');
       let actor=localStorage.getItem(ACTOR);if(!actor){actor=crypto.randomUUID();localStorage.setItem(ACTOR,actor);}
       client.root=root;client.groupId=group.id;client.last=null;client.lastCycleAt=null;client.currentError=null;
-      client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport,onProgress:progress,beforeRoomMerge:options.beforeMerge});
+      client.replica=new P.Replica({groupId:group.id,actor,load,save,capture,apply,transport,onProgress:progress,beforeRoomMerge:options.beforeMerge,publicationLimit:()=>settings.publishBatch});
       localStorage.setItem(CONFIG,JSON.stringify({groupId:group.id,enabled:true}));
       await options.remember(root,group.id);client.active=true;
       reportStatus('pending',folderLabel(root)+' · 양방향 공유 연결됨');schedule();
@@ -264,12 +272,12 @@
       localStorage.removeItem(CONFIG);await options.disconnect();
     }
     function showSettings(){
-      const fields=[['poll','공유 폴더 확인 간격'],['debounce','수정 후 공유 대기 시간']];
-      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label])=>`<p><label>${label} (ms) <input data-peer="${key}" type="number" min="${TIMER_MIN}" max="${TIMER_MAX}" step="${TIMER_STEP}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ms</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>모두톡이 열린 동안 적용됩니다. 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
-      const set=(key,value)=>{if(!Number.isFinite(value)||value<TIMER_MIN||value>TIMER_MAX)return;
-        settings[key]=value;localStorage.setItem('memotalk.peer.'+key,String(value));sheet.querySelector('[data-value="'+key+'"]').textContent=value+' ms';schedule();};
+      const fields=[['poll','공유 폴더 확인 간격','ms',TIMER_MIN,TIMER_MAX,TIMER_STEP,POLL_DEFAULT],['debounce','수정 후 공유 대기 시간','ms',TIMER_MIN,TIMER_MAX,TIMER_STEP,DEBOUNCE_DEFAULT],['publishBatch','받은 기록 확인 전 한 번에 보낼 기록','개',PUBLISH_BATCH_MIN,PUBLISH_BATCH_MAX,PUBLISH_BATCH_STEP,PUBLISH_BATCH_DEFAULT]];
+      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label,unit,min,max,step])=>`<p><label>${label} (${unit}) <input data-peer="${key}" type="number" min="${min}" max="${max}" step="${step}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ${unit}</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>한 번에 보낼 기록 수를 줄이면 대량 보내기 중에도 받은 기록을 더 자주 확인합니다. 변경한 값은 다음 처리 주기부터 적용됩니다. 모두톡이 열린 동안 적용되며 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
+      const set=(key,value)=>{const field=fields.find(f=>f[0]===key);if(!field||!Number.isFinite(value)||value<field[3]||value>field[4]||(key==='publishBatch'&&!Number.isInteger(value)))return;
+        settings[key]=value;localStorage.setItem('memotalk.peer.'+key,String(value));sheet.querySelector('[data-value="'+key+'"]').textContent=value+' '+field[2];schedule();};
       sheet.querySelectorAll('[data-peer]').forEach(input=>input.oninput=()=>{if(input.value!=='')set(input.dataset.peer,Number(input.value));});
-      sheet.querySelectorAll('[data-reset]').forEach(button=>button.onclick=()=>{const key=button.dataset.reset,value=key==='poll'?POLL_DEFAULT:DEBOUNCE_DEFAULT;sheet.querySelector('[data-peer="'+key+'"]').value=value;set(key,value);localStorage.removeItem('memotalk.peer.'+key);});
+      sheet.querySelectorAll('[data-reset]').forEach(button=>button.onclick=()=>{const key=button.dataset.reset,field=fields.find(f=>f[0]===key),value=field[6];sheet.querySelector('[data-peer="'+key+'"]').value=value;set(key,value);localStorage.removeItem('memotalk.peer.'+key);});
     }
     async function showHistory(){
       if(!client.active)return options.toast('공유 폴더를 먼저 연결하세요.');
@@ -327,8 +335,8 @@
       let record=client.lastError;try{record ||= JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')||'null');}catch(_){}
       let localData=null;try{const data=getBackend().peerSnapshot().data;localData={rooms:Object.values(data.rooms).filter(r=>!r.peerConflict&&r.kind!=='folder'&&r.kind!=='archive').length,memos:Object.values(data.msgs).flat().filter(m=>!m.peerConflict).length};}catch(_){}
       const blockedReasons={};for(const entry of client.last?.blocked||[])blockedReasons[entry.code]=(blockedReasons[entry.code]||0)+1;
-      const current={active:client.active,busy:client.busy,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,progress:client.progress||null,nativeRequests:window.MemoTalkFS?.diagnostics?.()||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,blockedReasons,foreignGroups:client.last?.foreignGroups||{}};
-      const sheet=options.openScrim('<h2>공유 오류 진단</h2><p>현재 상태와 과거 오류는 다릅니다. 주기 검사 완료는 원격 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><button data-peer-refresh>현재 상태 새로 고침</button><h3>현재 연결·반영 상태</h3><pre data-peer-current style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(JSON.stringify(current,null,2))+'</pre><h3>과거 마지막 오류 기록</h3><pre data-peer-history style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 과거 오류 없음')+'</pre>');
+      const current={capturedAt:new Date().toISOString(),appTitle:typeof document!=='undefined'?document.title:null,active:client.active,busy:client.busy,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,progress:client.progress||null,nativeRequests:window.MemoTalkFS?.diagnostics?.()||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,outgoingPending:client.last?.outgoingPending??null,blockedReasons,foreignGroups:client.last?.foreignGroups||{}};
+      const sheet=options.openScrim('<h2>공유 오류 진단</h2><p>이 화면은 진단을 연 시점의 기록입니다. 최신 값은 아래 새로 고침 버튼으로 확인하세요. 현재 상태와 과거 오류는 다릅니다. 주기 검사 완료는 원격 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><button data-peer-refresh>현재 상태 새로 고침</button><h3>현재 연결·반영 상태</h3><pre data-peer-current style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(JSON.stringify(current,null,2))+'</pre><h3>과거 마지막 오류 기록</h3><pre data-peer-history style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 과거 오류 없음')+'</pre>');
       sheet.querySelector('[data-peer-refresh]').onclick=()=>{options.closeSheet();diagnostics();};
     }
     function menu(){

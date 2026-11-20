@@ -123,8 +123,31 @@ def main():
                     assert current['active'] and current['groupId']
                     assert current['currentError'] is None
                     assert current['lastCompletedLocalCycleAt']
+                    assert current['capturedAt'] and current['appTitle'].startswith('모두톡 ')
+                    assert 'outgoingPending' in current
+                    page.locator('[data-peer-refresh]').click()
+                    refreshed = json.loads(page.locator('[data-peer-current]').inner_text())
+                    assert refreshed['capturedAt'] >= current['capturedAt']
                     assert current['localData']['memos'] >= 2
                     assert previous['code'] == 'peer_group_not_downloaded'
+                    page.keyboard.press('Escape')
+                    sharing(page)
+                    page.get_by_role('button', name='공유 확인·반영 간격 조절', exact=True).click()
+                    batch = page.locator('[data-peer="publishBatch"]')
+                    assert batch.get_attribute('min') == '1' and batch.get_attribute('max') == '100000'
+                    assert batch.input_value() == '4'
+                    batch.fill('7')
+                    assert page.locator('[data-value="publishBatch"]').inner_text() == '7 개'
+                    assert page.evaluate("localStorage.getItem('memotalk.peer.publishBatch')") == '7'
+                    page.keyboard.press('Escape')
+                    page.reload()
+                    page.locator('#btn-file-folder').wait_for()
+                    sharing(page)
+                    page.get_by_role('button', name='공유 확인·반영 간격 조절', exact=True).click()
+                    assert page.locator('[data-peer="publishBatch"]').input_value() == '7'
+                    page.locator('[data-reset="publishBatch"]').click()
+                    assert page.locator('[data-peer="publishBatch"]').input_value() == '4'
+                    assert page.evaluate("localStorage.getItem('memotalk.peer.publishBatch')") is None
                     page.keyboard.press('Escape')
                 page.get_by_text('공유 테스트', exact=True).click()
 

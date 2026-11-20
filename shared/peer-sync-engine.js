@@ -11,6 +11,8 @@
   const MAX_OPERATION_BYTES=4*1024*1024,MAX_PARENTS=1024,MAX_OPERATIONS=100000;
   // Durable receive batch size (backend default). Lower = less restart work, more local writes.
   const RECEIVE_CHECKPOINT_OPERATIONS=32;
+  // Backend fairness default: lower = more frequent receives between outgoing writes.
+  const PUBLICATION_BATCH_DEFAULT=4;
   const GROUP_FILE='memotalk-peer-group.json',DIRECTORY='memotalk-peer-v1';
   const HASH=/^[a-f0-9]{64}$/;
   const ID=/^[a-zA-Z0-9_-]{1,256}$/;
@@ -292,8 +294,8 @@
   }
   function sameMap(a,b){return canonical(a)===canonical(b);}
   class Replica{
-    constructor({groupId,actor,load,save,capture,apply,transport,onProgress,beforeRoomMerge}){
-      Object.assign(this,{groupId,actor,load,save,capture,apply,transport,onProgress,beforeRoomMerge});this.running=false;
+    constructor({groupId,actor,load,save,capture,apply,transport,onProgress,beforeRoomMerge,publicationLimit}){
+      Object.assign(this,{groupId,actor,load,save,capture,apply,transport,onProgress,beforeRoomMerge});this.publicationLimit=publicationLimit??(()=>PUBLICATION_BATCH_DEFAULT);this.running=false;
     }
     progress(stage,detail={}){
       // Diagnostics must never change whether a revision is committed or published.
@@ -325,16 +327,23 @@
           this.progress('publish-attachment',{path:assetPath});
           await this.transport.put(assetPath,data);delete state.assets[assetPath];
         }
-        let published=0;
-        for(const id of state.outbox){
-          this.progress('publish-operation',{path:DIRECTORY+'/operations/'+id+'.json',completed:published,total:state.outbox.length});
-          await this.transport.put(DIRECTORY+'/operations/'+id+'.json',encoder.encode(canonical(state.operations[id])));
-          published++;
-        }
-        state.outbox=[];
-        // A crash can replay already-published content-addressed files safely. One
-        // durable batch receipt avoids rewriting the entire ledger for each memo.
+        const requested=typeof this.publicationLimit==='function'?this.publicationLimit():this.publicationLimit;
+        if(!Number.isInteger(requested)||requested<1||requested>MAX_OPERATIONS)throw fail('peer_publication_limit');
+        const outgoing=state.outbox.slice(0,requested),outgoingTotal=state.outbox.length;
+        let published=0,publishError=null;
+        try{
+          for(const id of outgoing){
+            this.progress('publish-operation',{path:DIRECTORY+'/operations/'+id+'.json',completed:published,total:outgoingTotal,batchTotal:outgoing.length});
+            await this.transport.put(DIRECTORY+'/operations/'+id+'.json',encoder.encode(canonical(state.operations[id])));
+            published++;
+          }
+        }catch(error){publishError=error;}
+        // Preserve successful receipts even when a later write fails. A crash before
+        // this save safely replays only this bounded batch, not the entire history.
+        state.outbox=state.outbox.slice(published);
+        this.progress('save-published-checkpoint',{completed:published,remaining:state.outbox.length});
         await this.save(state);
+        if(publishError)throw publishError;
         const blocked=[],foreignGroups={};
         // Verified content-addressed foreign revisions are immutable, just like
         // revisions already in state.operations. Keep their group receipt so a
@@ -410,7 +419,7 @@
         }
         await this.save(state);
         // Missing revisions can be delayed by transport. Do not claim complete sync.
-        if(view.pending.length)return {pending:view.pending.length,blocked,foreignGroups,conflicts:view.conflicts.length,applied:false};
+        if(view.pending.length)return {pending:view.pending.length,blocked,foreignGroups,conflicts:view.conflicts.length,applied:false,outgoingPending:state.outbox.length,revisions:Object.keys(state.operations).length};
         const desired=await fingerprints(view.records);
         const presentation=await hash(view.heads);
         const needsApply=!sameMap(hashes,desired)||snapshot.presentation!==presentation;
@@ -433,7 +442,7 @@
         await this.save(state);
         this.progress('cycle-complete',{revisions:Object.keys(state.operations).length});
         const mergedRooms=Object.values(view.records).filter(item=>item.entity.kind==='room').reduce((total,item)=>total+(item.value.peerMergedRooms?.length||0),0);
-        return {pending:0,blocked,foreignGroups,conflicts:view.conflicts.length,applied:needsApply,revisions:Object.keys(state.operations).length,mergedRooms};
+        return {pending:0,blocked,foreignGroups,conflicts:view.conflicts.length,applied:needsApply,revisions:Object.keys(state.operations).length,mergedRooms,outgoingPending:state.outbox.length};
       }finally{this.running=false;}
     }
     async resolve(key,id){

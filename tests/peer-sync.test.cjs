@@ -157,7 +157,7 @@ test('interruption midway through publishing replays identical revisions without
   const put=a.transport.put;let writes=0;
   a.transport.put=async(...args)=>{if(++writes===2)throw Object.assign(Error('disk full'),{code:'ENOSPC'});return put(...args);};
   await assert.rejects(a.replica.tick(),{code:'ENOSPC'});
-  const ids=Object.keys(a.state.operations).sort();assert.equal(a.state.outbox.length,2);
+  const ids=Object.keys(a.state.operations).sort();assert.equal(a.state.outbox.length,1,'successful publication receipt survives a later failure');
   a.transport.put=put;await a.replica.tick();
   assert.deepEqual(Object.keys(a.state.operations).sort(),ids);assert.equal(a.state.outbox.length,0);
   assert.equal(text(a,'m'),'durable local edit');
@@ -166,7 +166,7 @@ test('interruption midway through publishing replays identical revisions without
 
 test('interrupted first receive resumes durable verified batches without importing a backup',async()=>{
   const files=new Map(),source=fixture('source',files,[room,...Array.from({length:80},(_,i)=>memo('checkpoint'+i,'preserved '+i))]);
-  await source.replica.tick();
+  source.replica.publicationLimit=100000;await source.replica.tick();
   const phone=fixture('phone',files,[]),read=phone.transport.read;let reads=0;
   phone.transport.read=async path=>{if(++reads===41)throw Object.assign(Error('revoked'),{code:'EACCES'});return read(path);};
   await assert.rejects(phone.replica.tick(),{code:'EACCES'});
@@ -183,7 +183,43 @@ test('interrupted first receive resumes durable verified batches without importi
 
 test('receive checkpoint failure stops before applying and is not hidden as a bad remote file',async()=>{
   const files=new Map(),source=fixture('source',files,[room,...Array.from({length:40},(_,i)=>memo('save'+i,'data'))]);
-  await source.replica.tick();const phone=fixture('phone',files,[]);
+  source.replica.publicationLimit=100000;await source.replica.tick();const phone=fixture('phone',files,[]);
   phone.replica.save=async state=>{if(Object.keys(state.operations).length)throw Object.assign(Error('disk full'),{code:'ENOSPC'});phone.state=copy(state);};
   await assert.rejects(phone.replica.tick(),{code:'ENOSPC'});assert.equal(phone.writes,0);assert.deepEqual(phone.records,[]);
+});
+
+
+test('177 outgoing revisions do not starve incoming edits between bounded send batches',async()=>{
+  const files=new Map(),serverRoom={entity:{kind:'room',id:'server-room'},value:{id:'server-room',name:'받은 방'}};
+  const remote={entity:{kind:'msg',rid:'server-room',id:'server-note'},value:{id:'server-note',text:'remote first',ts:1}};
+  const server=fixture('server',files,[serverRoom,remote]);await server.replica.tick();
+  const phone=fixture('phone',files,[room,...Array.from({length:176},(_,i)=>memo('bulk'+i,'local '+i))]);
+  const result=await phone.replica.tick();
+  assert.equal(result.outgoingPending,173);assert.equal(phone.state.outbox.length,173);
+  assert.equal(text(phone,'server-note'),'remote first','receive must run before all 177 outgoing records finish');
+  server.edit('server-note','remote while sending');await server.replica.tick();await phone.replica.tick();
+  assert.equal(text(phone,'server-note'),'remote while sending');assert.ok(phone.state.outbox.length>0);
+  for(let i=0;i<100&&phone.state.outbox.length;i++)await phone.replica.tick();
+  assert.equal(phone.state.outbox.length,0);await server.replica.tick();
+  assert.equal(text(server,'bulk175'),'local 175');assert.equal(text(phone,'bulk0'),'local 0');
+});
+
+test('partial outgoing failure saves successful receipts and restart skips that prefix',async()=>{
+  const phone=fixture('phone',new Map(),[room,...Array.from({length:176},(_,i)=>memo('bulk'+i,'local '+i))]);
+  const put=phone.transport.put;let attempts=0;
+  phone.transport.put=async(...args)=>{if(++attempts===3)throw Object.assign(Error('failed write'),{code:'EIO'});return put(...args);};
+  await assert.rejects(phone.replica.tick(),{code:'EIO'});assert.equal(phone.state.outbox.length,175);
+  const confirmed=new Set(phone.files.keys()),allIds=Object.keys(phone.state.operations).sort();let replayed=0;
+  phone.transport.put=async(p,b)=>{if(confirmed.has(p))replayed++;return put(p,b);};phone.replica=phone.makeReplica();
+  await phone.replica.tick();assert.equal(replayed,0);assert.equal(phone.state.outbox.length,171);
+  assert.deepEqual(Object.keys(phone.state.operations).sort(),allIds);assert.equal(text(phone,'bulk175'),'local 175');
+});
+
+test('publication limit changes at the next cycle and rejects invalid counts',async()=>{
+  const phone=fixture('phone',new Map(),[room,...Array.from({length:12},(_,i)=>memo('tune'+i,'local'))]);
+  let limit=1;phone.replica.publicationLimit=()=>limit;
+  assert.equal((await phone.replica.tick()).outgoingPending,12);
+  limit=5;assert.equal((await phone.replica.tick()).outgoingPending,7);
+  limit=0;await assert.rejects(phone.replica.tick(),{code:'peer_publication_limit'});
+  assert.equal(phone.state.outbox.length,7);limit=100000;assert.equal((await phone.replica.tick()).outgoingPending,0);
 });

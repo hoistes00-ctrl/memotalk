@@ -1,11 +1,11 @@
 {
   "displayName": "모두톡",
-  "version": "17.4.1",
+  "version": "17.4.2",
   "repository": "hoistes00-ctrl/memotalk",
-  "tag": "modutalk-v17.4.1",
+  "tag": "modutalk-v17.4.2",
   "files": {
-    "windows": "Modutalk-Setup-17.4.1-x64.exe",
-    "android": "Modutalk-Android-17.4.1.apk",
-    "portable": "Modutalk-Portable-17.4.1-x64.exe"
+    "windows": "Modutalk-Setup-17.4.2-x64.exe",
+    "android": "Modutalk-Android-17.4.2.apk",
+    "portable": "Modutalk-Portable-17.4.2-x64.exe"
   }
 }
