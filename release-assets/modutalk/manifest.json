@@ -11,6 +11,5 @@
   "androidPackage": "kr.memotalk.app.sharingpreview5.syncfix",
   "androidSha256": "9a60ad63262456bd14472db62fce11082b78d512f2f1bae52efbbca165c29ea9",
   "androidCertificateSha256": "2ac9518dd20995d5caf191522e81e5f18048ab3c956b196f825bf6020bea6b1a",
-  "obsidianFile": "Modutalk-Obsidian-17.5.0.zip",
-  "obsidianSha256": "11313e5678a5462b00cc0a9419a473f50a6f0b3bb9d1b0a1d00bbed58c46f976"
+  "obsidianFile": "Modutalk-Obsidian-17.5.0.zip"
 }

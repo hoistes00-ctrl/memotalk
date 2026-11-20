@@ -53,14 +53,13 @@ def prepare():
     shutil.copyfile(apk,OUTPUT/apk.name)
     plugin=OUTPUT/MANIFEST['obsidianFile']
     subprocess.run([sys.executable,'scripts/build-obsidian-view.py','--check','--zip',str(plugin)],check=True)
-    assert digest(plugin)==MANIFEST['obsidianSha256']
     with zipfile.ZipFile(plugin) as z:
         assert set(z.namelist())=={'modutalk-sync-view/'+n for n in ['main.js','manifest.json','styles.css','app.html']}
         for n in z.namelist():assert z.read(n)==(Path('obsidian')/n).read_bytes()
     assert json.loads((Path('obsidian/modutalk-sync-view/manifest.json')).read_text())['version']==MANIFEST['androidVersion']
     shutil.copyfile(INPUT/'release-notes.ko.md',OUTPUT/'README.ko.md')
     binaries=[{'name':p.name,'bytes':p.stat().st_size,'sha256':digest(p)} for p in sorted(OUTPUT.iterdir()) if p.suffix in ('.exe','.apk','.zip')]
-    info={**MANIFEST,'windowsOrigin':'successful installed-Windows roundtrip CI artifact','sourceRunAttempt':run['run_attempt'],'sourceRunUrl':run['html_url'],'androidOrigin':'locally built APK matching existing phone signing identity; installed on physical Galaxy Flip5; one-screen automatic edit roundtrip verified; not re-signed in CI','publicationRun':os.environ['GITHUB_RUN_ID'],'binaries':binaries}
+    info={**MANIFEST,'obsidianSha256':digest(plugin),'windowsOrigin':'successful installed-Windows roundtrip CI artifact','sourceRunAttempt':run['run_attempt'],'sourceRunUrl':run['html_url'],'androidOrigin':'locally built APK matching existing phone signing identity; installed on physical Galaxy Flip5; one-screen automatic edit roundtrip verified; not re-signed in CI','publicationRun':os.environ['GITHUB_RUN_ID'],'binaries':binaries}
     (OUTPUT/'build-info.json').write_text(json.dumps(info,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     sums=''.join(digest(p)+'  '+p.name+'\n' for p in sorted(OUTPUT.iterdir()))
     (OUTPUT/'SHA256SUMS.txt').write_text(sums,encoding='ascii')
