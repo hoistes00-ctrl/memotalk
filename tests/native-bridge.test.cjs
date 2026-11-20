@@ -92,3 +92,14 @@ test('bridge ENOENT maps to NotFoundError; new Windows handle never touches disk
   const writer=await file.createWritable({expectedBytes:null});await writer.write('hello');await writer.close();
   assert.ok(!commands.includes('touch'));
 });
+
+test('location bridge preserves provider paths and never invents a full path from a folder name',async()=>{
+  const legacy=bridge(async()=>({ok:true,result:{connected:true,name:'selected-folder',folderToken:'token'}}));
+  const location=await legacy.MemoTalkFS.folderLocation();
+  assert.equal(location.kind,'name-only');assert.equal(location.displayPath,'selected-folder');assert.equal(location.canReveal,false);
+  await assert.rejects(legacy.MemoTalkFS.revealFolder(),/직접 열 수 없어요/);
+  const android=bridge(async()=>({ok:true,result:{connected:true,name:'Documents/Vault',location:{kind:'document-tree',displayPath:'Documents/Vault',documentId:'primary:Documents/Vault',canReveal:false}}}));
+  const document=await android.MemoTalkFS.folderLocation();
+  assert.equal(document.documentId,'primary:Documents/Vault');assert.equal(document.displayPath,'Documents/Vault');
+  assert.ok(!document.displayPath.startsWith('/storage/'));
+});

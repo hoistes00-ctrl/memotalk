@@ -12,6 +12,7 @@ TITLE='프로젝트 회의 기록과 다음 작업 내용을 함께 정리하는
 DATA={'seeded':True,'rooms':{
     'parent':{'id':'parent','kind':'folder','name':'업무'},
     'child':{'id':'child','kind':'folder','name':'공동 프로젝트','parentId':'parent'},
+    'long-folder':{'id':'long-folder','kind':'folder','name':'여러 기기의 자료와 읽을 책을 함께 관리하는 아주 긴 폴더 제목'},
     'room-long':{'id':'room-long','name':TITLE,'folderId':'child','createdAt':1,'tags':['회의기록','해야할일','공동작업']},
     'root-room':{'id':'root-room','name':'최상위에서도 제목이 끝까지 보이는 긴 메모방','createdAt':2},
     'token-room':{'id':'token-room','name':'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_without_spaces','createdAt':3}},
@@ -64,7 +65,7 @@ def main():
                 assert page.locator('[data-app-location]').inner_text()=='전체 / 업무 / 공동 프로젝트 / '+TITLE
                 disk=page.locator('[data-disk-location]').inner_text()
                 if device=='windows':
-                    assert Path(disk)==temporary/'windows'
+                    assert Path(disk).resolve()==(temporary/'windows').resolve(),'Displayed path must resolve to the selected test folder, including Windows short-name aliases'
                     page.get_by_role('button',name='탐색기에서 열기',exact=True).click()
                 else:
                     assert disk=='Documents/Obsidian/Test'
@@ -77,9 +78,9 @@ def main():
                 assert page.evaluate("JSON.parse(localStorage.getItem('memotalk.folderFolded')).child") is False
                 assert page.locator('.room[data-id=room-long]').evaluate("el=>el.classList.contains('location-target')")
                 def whole_titles():
-                    return page.locator('.room .rname').evaluate_all('''(els,epsilon)=>els.every(el=>{
+                    return page.locator('.room .rname, .folderline .foldname').evaluate_all('''(els,epsilon)=>els.every(el=>{
                         const style=getComputedStyle(el),box=el.getBoundingClientRect();
-                        const parent=el.closest('.room').getBoundingClientRect(),tile=el.closest('.room-entry').getBoundingClientRect();
+                        const parent=(el.closest('.room')||el.closest('.folderline')).getBoundingClientRect(),tile=(el.closest('.room-entry')||el.closest('.folderline')).getBoundingClientRect();
                         return box.width>0&&style.whiteSpace==='normal'&&el.scrollHeight<=el.clientHeight+epsilon&&el.scrollWidth<=el.clientWidth+epsilon&&box.bottom<=parent.bottom+epsilon&&box.bottom<=tile.bottom+epsilon;
                     })''',LAYOUT_EPSILON_PX)
                 assert whole_titles(),'list titles are clipped'

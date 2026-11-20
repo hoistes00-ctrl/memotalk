@@ -11,7 +11,7 @@
 .list.grid-view .folderline .foldtoggle{flex:initial;display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center;width:100%;min-width:0;}
 .list.grid-view .folderline .foldtoggle svg{width:42px;height:42px;}
 .list.grid-view .folderline .foldtoggle svg:first-child{display:none;}
-.list.grid-view .folderline .foldname{max-width:100%;font-size:13px;white-space:normal;overflow-wrap:anywhere;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.list.grid-view .folderline .foldname{max-width:100%;font-size:var(--room-title-size,inherit);white-space:normal;word-break:keep-all;overflow-wrap:anywhere;line-height:var(--room-title-leading,normal);display:block;overflow:visible;}
 .list.grid-view .folderline .foldcount{font-size:11px;}
 .list.grid-view .folderline .foldmenu{position:absolute;right:0;top:0;padding:1px 8px;}
 .list.grid-view .room{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-width:0;padding:8px 3px!important;gap:6px;text-align:center;border-radius:15px;}
@@ -150,6 +150,7 @@ body{position:relative;margin:0}
 .rtop .rname{flex:1;min-width:0;max-width:100%}
 :root[data-title-mode="compact"] .list .room .rname{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--room-title-lines);overflow:hidden;}
 :root[data-title-mode="compact"] .list.grid-view .room .rname{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--room-title-lines);overflow:hidden;}
+:root[data-title-mode="compact"] .list .folderline .foldname{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--room-title-lines);overflow:hidden;}
 .rmeta{display:flex;flex-wrap:wrap;gap:4px 10px;min-width:0;}
 .rmeta .rtime{margin:0;align-self:auto;}
 .rpath{font-size:12px;color:var(--ink-3);white-space:normal;overflow-wrap:anywhere;}
@@ -186,7 +187,7 @@ body{position:relative;margin:0}
 
 .folderline{display:flex;align-items:center;gap:6px;width:100%;padding:9px 16px;background:var(--surface-2);border-top:1px solid var(--line);text-align:left;font-weight:600}
 .folderline .foldtoggle{flex:1;display:flex;align-items:center;gap:8px;min-width:0;text-align:left}
-.folderline .foldname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folderline .foldname{min-width:0;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;font-size:var(--room-title-size,inherit);line-height:var(--room-title-leading,normal);}
 .folderline .foldcount{font-size:12px;font-weight:400;color:var(--ink-3)}
 .folderline .foldmenu{padding:4px 10px;font-size:19px}
 .folderline .foldtoggle svg{width:16px;height:16px;flex:0 0 auto}
@@ -1411,7 +1412,7 @@ function renderList(){
     for(const f of S.folders.filter(f=>parentOf(f)===pid).sort((a,b)=>a.name.localeCompare(b.name,'ko'))){
       if(visited.has(f.id))continue;visited.add(f.id);
       const n=rooms.filter(r=>r.folderId===f.id).length;
-      html.push(`<div class="folderline${chosenRooms.has(f.id)?' selected':''}" data-item-id="${esc(f.id)}" data-drop-folder="${esc(f.id)}" style="padding-left:${16+Math.min(depth,6)*13}px"><button class="folder-check" data-folder-check="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 선택" aria-pressed="${chosenRooms.has(f.id)}">${chosenRooms.has(f.id)?'✓':''}</button><button class="foldtoggle" data-folder="${esc(f.id)}" aria-expanded="${!folded[f.id]}"><span class="drag-handle" aria-hidden="true" title="끌어서 폴더 이동">⠿</span>${folded[f.id]?I.plus:I.down}${I.folder}<span class="foldname">${esc(f.name)}</span><span class="foldcount">${n}</span></button><button class="foldmenu" data-folder-menu="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 메뉴">⋮</button></div>`);
+      html.push(`<div class="folderline${chosenRooms.has(f.id)?' selected':''}" data-item-id="${esc(f.id)}" data-drop-folder="${esc(f.id)}" style="padding-left:${16+Math.min(depth,6)*13}px"><button class="folder-check" data-folder-check="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 선택" aria-pressed="${chosenRooms.has(f.id)}">${chosenRooms.has(f.id)?'✓':''}</button><button class="foldtoggle" data-folder="${esc(f.id)}" aria-expanded="${!folded[f.id]}"><span class="drag-handle" aria-hidden="true" title="끌어서 폴더 이동">⠿</span>${folded[f.id]?I.plus:I.down}${I.folder}<span class="foldname" title="${esc(f.name)}">${esc(f.name)}</span><span class="foldcount">${n}</span></button><button class="foldmenu" data-folder-menu="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 메뉴">⋮</button></div>`);
       if(!folded[f.id]){draw(f.id,depth+1);html.push(...roomsInSavedOrder(rooms.filter(r=>r.folderId===f.id),f.id).map(r=>roomHtml(r,depth+1)));}
     }
   };
