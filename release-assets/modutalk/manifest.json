@@ -1,0 +1,14 @@
+{
+  "tag": "modutalk-v17.4.0",
+  "sourceCommit": "19e2963b13d36fc554c6c2978fd2fd6d849f0844",
+  "sourceRunId": 44683617583,
+  "windowsVersion": "17.4.0",
+  "androidVersion": "17.4.0",
+  "androidVersionCode": 28,
+  "windowsFile": "Modutalk-Setup-17.4.0-x64.exe",
+  "portableFile": "Modutalk-Portable-17.4.0-x64.exe",
+  "androidFile": "Modutalk-Android-17.4.0.apk",
+  "androidPackage": "kr.memotalk.app.sharingpreview5.syncfix",
+  "androidSha256": "c8027a8e58e38f3e0ce41797c94336e8b9a1eb90bd76c0576c608daefc54e9d8",
+  "androidCertificateSha256": "2ac9518dd20995d5caf191522e81e5f18048ab3c956b196f825bf6020bea6b1a"
+}

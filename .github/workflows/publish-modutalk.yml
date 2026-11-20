@@ -1,0 +1,48 @@
+name: Publish Modutalk 17.4.0 downloads
+
+on:
+  push:
+    branches: ['release/modutalk-v17.4.0']
+    paths:
+      - '.github/workflows/publish-modutalk.yml'
+      - '.github/scripts/*modutalk*'
+      - 'release-assets/modutalk/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modutalk-canonical-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Wait for source tests and fetch the exact Windows artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/wait-modutalk-source.py
+      - name: Verify source, app identity and all three binaries
+        run: python3 .github/scripts/prepare-modutalk.py prepare
+      - name: Verify downloadable bytes and publish Modutalk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/prepare-modutalk.py publish
+
