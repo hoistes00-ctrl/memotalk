@@ -3295,8 +3295,8 @@ async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessag
     const alreadyHere=externalCounts.get(sig)||0;
     for(let i=0;i<list.length;i++){
       const source=list[i];
-      // A stable 256-bit digest cannot depend on the current time or device.
-      const bytes=new TextEncoder().encode(canonical([targetId,sourceId,source.id]));
+      // A content-versioned digest retains later edited copies without overwriting earlier versions.
+      const bytes=new TextEncoder().encode(canonical([targetId,sourceId,source.id,sig]));
       const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
       const destId='manual_'+Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('').slice(0,48);
       const existing=targetById.get(destId);
