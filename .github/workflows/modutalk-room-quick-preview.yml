@@ -1,0 +1,62 @@
+name: Modutalk 17.5.2 fast virtual preview release
+
+on:
+  push:
+    branches: [feature/manual-room-merge-and-date-sort]
+    paths:
+      - 'shared/index.html'
+      - 'android/app/src/main/assets/index.html'
+      - 'obsidian/modutalk-sync-view/**'
+      - 'tests/manual-room-merge-and-sort.test.cjs'
+      - 'tests/manual-room-merge-browser.py'
+      - '.github/workflows/modutalk-room-quick-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: modutalk-room-fast-preview
+  cancel-in-progress: false
+
+jobs:
+  browser-verified-preview:
+    runs-on: ubuntu-latest
+    if: github.repository == 'hoistes00-ctrl/memotalk'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check source and simulate merge/sort in Node
+        run: |
+          python scripts/sync-app-info.py --check
+          python scripts/build-obsidian-view.py --check
+          node tests/check-ui.mjs
+          node --test tests/manual-room-merge-and-sort.test.cjs tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs tests/peer-room-merge.test.cjs
+      - name: Install virtual browser
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Click through recovery merge and sorting in desktop/phone sized Chromium
+        run: python tests/manual-room-merge-browser.py
+      - name: Publish plugin-only virtual browser test ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import json;print(json.load(open('obsidian/modutalk-sync-view/manifest.json'))['version'])")"
+          [ "$version" = 17.5.2 ]
+          mkdir -p dist
+          asset="Modutalk-Obsidian-${version}-browser.${GITHUB_RUN_NUMBER}.zip"
+          python scripts/build-obsidian-view.py --check --plugin-only --zip "dist/$asset"
+          (cd dist; sha256sum "$asset" > SHA256SUMS.txt; sha256sum -c SHA256SUMS.txt)
+          tag="modutalk-obsidian-v${version}-browser.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" "dist/$asset" dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "모두톡 ${version} 가상 브라우저 검증 ${GITHUB_RUN_NUMBER}" \
+            --notes "실제 휴대폰 없이 Playwright의 PC/휴대폰 화면 크기 UI 동작, 수동 방 통합·미리보기·백업·중복 방지, 작성일 정렬, 기존 Obsidian 호스트 및 공유방 자동 병합 회귀 검증에 통과한 Obsidian 플러그인 테스트 버전입니다. Android 에뮬레이터·실기기 최종 검증과는 별개입니다. 기존 메모·그룹·앱을 삭제하지 말고 플러그인 폴더의 네 파일만 교체하세요."
