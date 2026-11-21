@@ -1,0 +1,62 @@
+name: Build and publish Modutalk Obsidian UI test releases
+
+on:
+  push:
+    branches:
+      - fix/modutalk-mobile-menu-17_5
+    paths:
+      - 'obsidian/modutalk-sync-view/**'
+      - 'shared/index.html'
+      - 'scripts/build-obsidian-view.py'
+      - 'tests/modutalk-ui-stability.test.cjs'
+      - '.github/workflows/modutalk-ui-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: modutalk-ui-preview
+  cancel-in-progress: false
+
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    if: github.repository == 'hoistes00-ctrl/memotalk'
+    steps:
+      - name: Fetch exact source revision
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Use Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check UI syntax, host isolation and menu restoration
+        run: |
+          node --check obsidian/modutalk-sync-view/main.js
+          node --test tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs
+          python scripts/build-obsidian-view.py --check
+      - name: Assemble plugin-only release and verify hash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "import json;print(json.load(open('obsidian/modutalk-sync-view/manifest.json'))['version'])")"
+          if [ "$version" != "17.5.1" ]; then echo "Unexpected plugin version $version"; exit 1; fi
+          mkdir -p dist
+          archive="Modutalk-Obsidian-${version}-test.${GITHUB_RUN_NUMBER}.zip"
+          python scripts/build-obsidian-view.py --check --plugin-only --zip "dist/$archive"
+          (
+            cd dist
+            sha256sum "$archive" > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
+          tag="modutalk-obsidian-v${version}-test.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" "dist/$archive" "dist/SHA256SUMS.txt" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "모두톡 Obsidian ${version} 테스트 ${GITHUB_RUN_NUMBER}" --prerelease \
+            --notes "Obsidian 연동 화면의 상하단 메뉴 충돌 및 파일 저장 옆 상태 문구 안정화 검증용 플러그인입니다. Android/Windows 설치 프로그램은 기존 17.5.0 그대로 사용합니다. 기존 앱이나 볼트, 공유 그룹을 삭제하지 마세요. Obsidian 플러그인 폴더의 4개 파일만 업데이트하고 플러그인을 다시 실행하세요. 실기기 결과를 확인하기 전인 테스트 버전입니다."
