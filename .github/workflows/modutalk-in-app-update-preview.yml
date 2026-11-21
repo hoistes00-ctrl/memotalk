@@ -63,12 +63,9 @@ jobs:
           done
           (
             cd dist
-            sha256sum "$archive" > SHA256SUMS.txt
-            cd plugin-assets
-            sha256sum main.js app.html styles.css manifest.json >> ../SHA256SUMS.txt
-            cd ..
-            sha256sum --check SHA256SUMS.txt --ignore-missing
-            sha256sum --check --ignore-missing < <(sed 's@^@plugin-assets/@' SHA256SUMS.txt)
+            sha256sum "$archive" plugin-assets/main.js plugin-assets/app.html \
+              plugin-assets/styles.css plugin-assets/manifest.json > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
           )
           tag="modutalk-obsidian-v${version}-browser.${GITHUB_RUN_NUMBER}"
           gh release create "$tag" "dist/$archive" "dist/SHA256SUMS.txt" \
