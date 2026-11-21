@@ -23,7 +23,14 @@ print('Verified offline Obsidian view bundle.' if '--check' in sys.argv else 'Bu
 if '--zip' in sys.argv:
     output=Path(sys.argv[sys.argv.index('--zip')+1]);output.parent.mkdir(parents=True,exist_ok=True)
     manifest=json.loads((target.parent/'manifest.json').read_text(encoding='utf-8'))
-    assert manifest['version']==json.loads((ROOT/'app-info.json').read_text(encoding='utf-8'))['version']
+    app_version=json.loads((ROOT/'app-info.json').read_text(encoding='utf-8'))['version']
+    if '--plugin-only' in sys.argv:
+        # A UI-only update does not bump Android/Windows package versions.
+        # Preserve their installed identity and require the same 17.x series.
+        assert manifest['id']=='modutalk-sync-view'
+        assert manifest['version'].split('.')[:2]==app_version.split('.')[:2]
+    else:
+        assert manifest['version']==app_version
     with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for name in ['main.js','manifest.json','styles.css','app.html']:
             entry=zipfile.ZipInfo('modutalk-sync-view/'+name,date_time=(1980,1,1,0,0,0));entry.compress_type=zipfile.ZIP_DEFLATED;entry.external_attr=0o100644<<16
