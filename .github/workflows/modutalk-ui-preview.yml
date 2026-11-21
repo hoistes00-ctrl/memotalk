@@ -7,6 +7,8 @@ on:
     paths:
       - 'obsidian/modutalk-sync-view/**'
       - 'shared/index.html'
+      - 'android/app/src/main/assets/index.html'
+      - 'scripts/sync-app-info.py'
       - 'scripts/build-obsidian-view.py'
       - 'tests/modutalk-ui-stability.test.cjs'
       - '.github/workflows/modutalk-ui-preview.yml'
@@ -37,7 +39,9 @@ jobs:
       - name: Check UI syntax, host isolation and menu restoration
         run: |
           node --check obsidian/modutalk-sync-view/main.js
-          node --test tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs
+          node --test tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs tests/app-identity.test.cjs
+          node tests/check-ui.mjs
+          python scripts/sync-app-info.py --check
           python scripts/build-obsidian-view.py --check
       - name: Assemble plugin-only release and verify hash
         env:
