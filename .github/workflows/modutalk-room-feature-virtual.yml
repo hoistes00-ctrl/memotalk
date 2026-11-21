@@ -1,0 +1,99 @@
+name: Virtual test and publish Modutalk 17.5.2 room features
+
+on:
+  push:
+    branches:
+      - feature/manual-room-merge-and-date-sort
+    paths:
+      - 'shared/**'
+      - 'android/app/src/main/assets/**'
+      - 'obsidian/modutalk-sync-view/**'
+      - 'scripts/build-obsidian-view.py'
+      - 'scripts/sync-app-info.py'
+      - 'tests/manual-room-merge-and-sort.test.cjs'
+      - '.github/workflows/modutalk-room-feature-virtual.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: modutalk-room-feature-preview
+  cancel-in-progress: false
+
+jobs:
+  virtual-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source identity, UI bundle, date sort and room merge tests
+        run: |
+          python scripts/sync-app-info.py --check
+          python scripts/build-obsidian-view.py --check
+          node tests/check-ui.mjs
+          node --test tests/manual-room-merge-and-sort.test.cjs tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs tests/peer-room-merge.test.cjs
+      - name: Install virtual browser automation
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Simulate sync and recovery in headless Chromium
+        run: |
+          python tests/peer-browser-smoke.py
+          python tests/location-title-browser.py
+
+  virtual-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verify device-independent unit suite
+        run: gradle -p android --no-daemon testSharingPreviewUnitTest
+      - name: Exercise Android WebView and SAF in an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: gradle -p android --no-daemon connectedSharingPreviewAndroidTest
+
+  publish-virtual-preview:
+    needs: [virtual-web, virtual-android]
+    if: github.repository == 'hoistes00-ctrl/memotalk'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package and publish the verified Obsidian-only update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "import json;print(json.load(open('obsidian/modutalk-sync-view/manifest.json'))['version'])")"
+          [ "$version" = "17.5.2" ]
+          mkdir -p dist
+          name="Modutalk-Obsidian-${version}-virtual.${GITHUB_RUN_NUMBER}.zip"
+          python scripts/build-obsidian-view.py --check --plugin-only --zip "dist/$name"
+          (cd dist && sha256sum "$name" > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
+          tag="modutalk-obsidian-v${version}-virtual.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" "dist/$name" dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "모두톡 ${version} 가상 검증 테스트 ${GITHUB_RUN_NUMBER}" \
+            --notes "휴대폰 실기기 없이 Node/가상 브라우저/Android 에뮬레이터 시험에 통과한 Obsidian 플러그인입니다. 수동 메모방 통합(원본 방 유지·사전 미리보기·안전 백업·반복 중복 방지)과 생성일/작성일 정렬을 시험합니다. Android/Windows 17.5.0 앱과 기존 데이터, 공유 그룹은 그대로 유지하세요. Obsidian 플러그인 4개 파일만 교체하고 다시 활성화하세요. 실기기 UI는 아직 검증되지 않았습니다."
