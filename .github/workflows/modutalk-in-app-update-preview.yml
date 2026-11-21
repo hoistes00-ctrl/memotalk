@@ -7,6 +7,7 @@ on:
       - 'obsidian/modutalk-sync-view/**'
       - 'shared/index.html'
       - 'android/app/src/main/assets/index.html'
+      - 'scripts/build-obsidian-view.py'
       - 'tests/in-app-updates.test.cjs'
       - '.github/workflows/modutalk-in-app-update-preview.yml'
   workflow_dispatch:
