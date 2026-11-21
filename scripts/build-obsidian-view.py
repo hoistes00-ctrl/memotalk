@@ -2,7 +2,9 @@
 from pathlib import Path
 import sys,re,zipfile,json
 ROOT=Path(__file__).resolve().parents[1]
+manifest=json.loads((ROOT/'obsidian/modutalk-sync-view/manifest.json').read_text(encoding='utf-8'))
 source=(ROOT/'shared/index.html').read_text(encoding='utf-8')
+source=re.sub(r'<title>[^<]*</title>','<title>모두톡 '+manifest['version']+'</title>',source,count=1)
 source=source.replace('<head>','<head>\n<!--MODUTALK_BOOTSTRAP-->',1)
 source=re.sub(r'<link[^>]+href="https://fonts\.[^"]+"[^>]*>\s*','',source)
 for name in ['platform-bridge.js','mirror-engine.js','peer-sync-engine.js','peer-sync-client.js']:

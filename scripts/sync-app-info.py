@@ -15,9 +15,9 @@ def write(path,text):
     old=file.read_text(encoding='utf-8') if file.exists() else None
     if CHECK:
         assert old==text, 'Outdated app branding/version: '+path+'; run python scripts/sync-app-info.py'
-    elif old!=text:
+    elif old!=text or file.read_bytes()!=text.encode('utf-8'):
         file.parent.mkdir(parents=True,exist_ok=True)
-        file.write_text(text,encoding='utf-8')
+        file.write_text(text,encoding='utf-8',newline='\n')
 
 package=json.loads((ROOT/'windows/package.json').read_text(encoding='utf-8'))
 package['version']=INFO['version']

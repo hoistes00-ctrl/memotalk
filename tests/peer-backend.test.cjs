@@ -29,6 +29,16 @@ test('simultaneous window writes are serialized without lost messages',async()=>
   await Promise.all([f.a.setMsg('r',{id:'a',ts:1,text:'A'}),f.b.setMsg('r',{id:'b',ts:2,text:'B'})]);
   assert.equal(f.read().msgs.r.length,2);
 });
+
+test('an atomic manual merge rejects an edit queued after its preview but accepts receipt-only changes',async()=>{
+  const f=fixture();await f.a.setRoom({id:'r',name:'shared'});const snapshot=f.a.peerSnapshot();
+  await f.b.setMsg('r',{id:'newer',ts:2,text:'new edit'});
+  await assert.rejects(f.a.applyTransfer([{type:'msg',rid:'r',value:{id:'merged',ts:1,text:'from old preview'},expected:null}],{expectedToken:snapshot.token}),/transfer_stale/);
+  assert.equal(f.read().msgs.r.length,1);const current=f.a.peerSnapshot();
+  await f.b.peerCommit(current.token,current.data.rooms,current.data.msgs,'group',{receipt:true});
+  await f.a.applyTransfer([{type:'msg',rid:'r',value:{id:'merged',ts:1,text:'fresh preview'},expected:null}],{expectedToken:current.token});
+  assert.equal(f.read().msgs.r.length,2);
+});
 test('peer storage token protects a user edit made during incoming file reads',async()=>{
   const f=fixture();await f.a.setRoom({id:'r',name:'shared'});
   const snapshot=f.a.peerSnapshot();await f.b.setMsg('r',{id:'b',ts:1,text:'user typed'});

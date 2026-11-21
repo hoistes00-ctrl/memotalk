@@ -39,7 +39,7 @@
 .memo-sentence-toolbar button{border-radius:9px;background:var(--surface-2);padding:9px 12px}
 .memo-sentence-toolbar .primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
 </style>
-<title>모두톡 17.5.0</title>
+<title>모두톡 17.5.4</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: two panes — room list and chat. Side by side on wide screens, one at a time on phones. */
@@ -188,6 +188,10 @@ body{position:relative;margin:0}
 .folderline .foldname{min-width:0;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;font-size:var(--room-title-size,inherit);line-height:var(--room-title-leading,normal);}
 .folderline .foldcount{font-size:12px;font-weight:400;color:var(--ink-3)}
 .folderline .foldmenu{padding:4px 10px;font-size:19px}
+.folderline .foldrename{flex:none;padding:.5em;display:inline-flex;align-items:center;justify-content:center}
+.folderline .foldrename svg{width:1.2em;height:1.2em}
+.list.grid-view .folderline .foldrename{position:absolute;left:0;top:0}
+.list.select-mode .foldrename{display:none}
 .folderline .foldtoggle svg{width:16px;height:16px;flex:0 0 auto}
 .folder-empty{padding:8px 20px;color:var(--ink-3);font-size:13px}
 /* messages */
@@ -1667,6 +1671,7 @@ body{position:relative;margin:0}
         {icon:'edit',label:'공유 확인·반영 간격 조절',run:showSettings}
       ];
       if(options.showLocation)items.unshift({icon:'folder',label:'현재 폴더·저장 위치 보기',run:options.showLocation});
+      if(options.showBackups)items.unshift({icon:'save',label:'백업 관리 · 필요한 메모 합치기',run:options.showBackups});
       if(options.showSingleScreen)items.unshift({icon:'folder',label:'모두톡 한 화면 자동 동기화',run:options.showSingleScreen});
       if(client.active)for(const [groupId,count]of Object.entries(client.last?.foreignGroups||{}))items.push({
         icon:'folder',label:'기존 그룹에 합류 · '+groupId+' ('+count+'개)',
@@ -1698,6 +1703,15 @@ const FILE_MIRROR_DELAY_MAX=2147483647;
 const FILE_MIRROR_DELAY_MIN=0;
 // 1 ms = number-input default step; larger values make each adjustment coarser.
 const FILE_MIRROR_DELAY_STEP=1;
+// Custom startup default 2500 ms; higher delays the standalone app's update prompt.
+const APP_UPDATE_STARTUP_DELAY_MS=2500;
+// Custom standalone check default one day; lower permits more frequent checks on opens.
+const APP_UPDATE_INTERVAL_MS=24*60*60*1000;
+// Browser timer valid range; larger permits longer user-selected delays.
+const APP_UPDATE_TIMER_MAX_MS=2147483647;
+// Backend HTTP deadline (not an interaction delay); higher tolerates slower update servers.
+const APP_UPDATE_NETWORK_TIMEOUT_MS=8000;
+let appUpdateStartupTimer=null;
 // Custom default 420 ms (no library default); lower starts touch holding sooner.
 const HOLD_DELAY = 420;
 // Custom default 7 px; lower starts mouse dragging with less movement.
@@ -2003,8 +2017,12 @@ function makeLocal(){
     },
     async updateMsg(rid, id, patch){ const m = (data.msgs[rid] || []).find(m => m.id === id); if (!m) return; const old = {...m}; Object.assign(m, patch); try { save(); } catch(e){ Object.keys(m).forEach(k => delete m[k]); Object.assign(m, old); throw e; } emitMsgs(rid); },
     async deleteMsg(rid, id){ const a = data.msgs[rid] || []; const i = a.findIndex(m => m.id === id); if (i < 0) return; const old = a.splice(i, 1)[0]; try { save(); } catch(e){ a.splice(i, 0, old); throw e; } emitMsgs(rid); },
-    async applyTransfer(operations){
+    async applyTransfer(operations,options={}){
       const raw=localStorage.getItem(KEY), latest=raw ? JSON.parse(raw) : data;
+      if(Object.prototype.hasOwnProperty.call(options,'expectedToken')&&raw!==options.expectedToken){
+        const expected=options.expectedToken?JSON.parse(options.expectedToken):{rooms:{},msgs:{}};
+        if(JSON.stringify(latest.rooms)!==JSON.stringify(expected.rooms)||JSON.stringify(latest.msgs)!==JSON.stringify(expected.msgs))throw new Error('transfer_stale');
+      }
       const next=JSON.parse(JSON.stringify(latest));
       for(const op of operations){
         const current=op.type==='room'?next.rooms[op.value.id]:(next.msgs[op.rid]||[]).find(m=>m.id===op.value.id);
@@ -2179,7 +2197,7 @@ async function saveExternalVaultCopy(snapshot){
   await writeMirrorFile(fileMirror.handle,name,backup);
   return true;
 }
-async function createVaultSnapshot(reason='자동 백업',force=false){
+async function createVaultSnapshot(reason='자동 백업',force=false,{preserveExisting=false}={}){
   if(backend?.mode!=='local')throw new Error('vault_local_only');
   if(vaultBackupBusy){
     await vaultBackupBusy;
@@ -2194,7 +2212,7 @@ async function createVaultSnapshot(reason='자동 백업',force=false){
     await vaultPut('snapshots',snapshot);
     // Failed retention cleanup must not invalidate a newly committed snapshot.
     const list=await vaultAll('snapshots');
-    for(const old of list.slice(VAULT_KEEP))await vaultDelete('snapshots',old.id).catch(()=>{});
+    if(!preserveExisting)for(const old of list.slice(VAULT_KEEP))await vaultDelete('snapshots',old.id).catch(()=>{});
     try{snapshot.externalSaved=await saveExternalVaultCopy(snapshot);}catch(_){snapshot.externalSaved=false;}
     if(snapshot.externalSaved)await vaultPut('snapshots',snapshot).catch(()=>{});
     return snapshot;
@@ -2223,10 +2241,11 @@ async function showVaultBackups(){
   const html=`<h2>자동 백업 · 복원</h2><p>하루에 한 번 앱 내부에 자동 저장하고, 삭제 전에도 보호본을 만듭니다. 최근 ${VAULT_KEEP}개까지 보관해요. 앱 삭제·기기 고장에 대비하려면 백업 JSON도 내려받으세요.${fileMirror.handle?' 연결된 실제 폴더에도 저장을 시도합니다.':''}</p>`+
     `<button class="item" id="backup-now">${I.save}<span>지금 내부 백업 만들기</span></button>`+
     `<button class="item" id="backup-export">${I.save}<span>현재 상태 JSON 파일로 내려받기</span></button>`+
-    (records.length?records.map(x=>`<div class="vault-line"><div class="vault-line-info"><b>${esc(x.reason)}</b><small>${vaultDate(x.createdAt)}${x.externalSaved?' · 실제 폴더도 저장':''}</small></div><button data-b-download="${esc(x.id)}">파일 저장</button><button data-b-restore="${esc(x.id)}">복원</button></div>`).join(''):'<p>아직 자동 백업이 없어요.</p>');
+    (records.length?records.map(x=>`<div class="vault-line"><div class="vault-line-info"><b>${esc(x.reason)}</b><small>${vaultDate(x.createdAt)}${x.externalSaved?' · 실제 폴더도 저장':''}</small></div><button data-b-download="${esc(x.id)}">파일 저장</button><button data-b-merge="${esc(x.id)}">메모방에 합치기</button><button data-b-restore="${esc(x.id)}">전체 복원</button></div>`).join(''):'<p>아직 자동 백업이 없어요.</p>');
   const dialog=openScrim(html);
   dialog.querySelector('#backup-now').onclick=async()=>{closeSheet();try{await createVaultSnapshot('수동 백업',true);toast('안전 백업을 만들었어요.');}catch(_){toast('백업을 만들지 못했어요.');}};
   dialog.querySelector('#backup-export').onclick=()=>{closeSheet();exportBackup();};
+  dialog.querySelectorAll('[data-b-merge]').forEach(button=>button.onclick=()=>openBackupRoomMerge(button.dataset.bMerge));
   dialog.querySelectorAll('[data-b-download]').forEach(btn=>btn.onclick=async()=>{
     const record=await vaultGet('snapshots',btn.dataset.bDownload);
     if(!record)return toast('백업을 찾지 못했어요.');
@@ -2360,8 +2379,8 @@ async function newFolder(parentId=null){
   try { await backend.setRoom({id:newId(),kind:'folder',name,parentId:folderById(parentId)?parentId:null,createdAt:Date.now()}); }
   catch(_){toast('폴더를 만들지 못했어요.');}
 }
-async function renameFolder(id){const f=folderById(id);if(!f)return;const name=await promptText({title:'폴더 이름 바꾸기',value:f.name});if(!name)return;
- try{await backend.updateRoom(id,{name});}catch(_){toast('이름을 변경하지 못했어요.');}}
+async function renameFolder(id){const f=folderById(id);if(!f)return;const name=await promptText({title:'폴더 이름 바꾸기',value:f.name,ok:'이름 저장'});if(!name||name===f.name)return;
+ try{if(!folderById(id))throw Error('folder_missing');await backend.updateRoom(id,{name});toast('폴더 이름을 바꿨어요. 내용과 위치는 유지됩니다.');}catch(_){toast('이름을 변경하지 못했어요.');}}
 function folderDescendants(id){
  const out=[], seen=new Set([id]), pending=[id];
  while(pending.length){ const cur=pending.shift();for(const f of S.folders.filter(f=>f.parentId===cur && !seen.has(f.id))){seen.add(f.id);out.push(f);pending.push(f.id);} }
@@ -2413,7 +2432,7 @@ function moveFolder(id){ if(folderById(id)) chooseBatchDestination([id]); }
 function folderMenu(id){const f=folderById(id);if(!f)return;menu(f.name,[
  {icon:'folder',label:'하위 폴더 만들기',run:()=>newFolder(id)},
  {icon:'folder',label:'폴더 전체 이동',run:()=>moveFolder(id)},
- {icon:'rename',label:'이름 바꾸기',run:()=>renameFolder(id)},
+ {icon:'rename',label:'폴더 이름 바꾸기',run:()=>renameFolder(id)},
  {icon:'trash',label:'폴더 삭제',danger:true,run:()=>deleteFolder(id)}]);}
 function moveRoom(id){ if(itemById(id)) chooseBatchDestination([id]); }
 /* ---------- labels ---------- */
@@ -2661,7 +2680,7 @@ function renderList(){
     for(const f of S.folders.filter(f=>parentOf(f)===pid).sort((a,b)=>a.name.localeCompare(b.name,'ko'))){
       if(visited.has(f.id))continue;visited.add(f.id);
       const n=rooms.filter(r=>r.folderId===f.id).length;
-      html.push(`<div class="folderline${chosenRooms.has(f.id)?' selected':''}" data-item-id="${esc(f.id)}" data-drop-folder="${esc(f.id)}" style="padding-left:${16+Math.min(depth,6)*13}px"><button class="folder-check" data-folder-check="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 선택" aria-pressed="${chosenRooms.has(f.id)}">${chosenRooms.has(f.id)?'✓':''}</button><button class="foldtoggle" data-folder="${esc(f.id)}" aria-expanded="${!folded[f.id]}"><span class="drag-handle" aria-hidden="true" title="끌어서 폴더 이동">⠿</span>${folded[f.id]?I.plus:I.down}${I.folder}<span class="foldname" title="${esc(f.name)}">${esc(f.name)}</span><span class="foldcount">${n}</span></button><button class="foldmenu" data-folder-menu="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 메뉴">⋮</button></div>`);
+      html.push(`<div class="folderline${chosenRooms.has(f.id)?' selected':''}" data-item-id="${esc(f.id)}" data-drop-folder="${esc(f.id)}" style="padding-left:${16+Math.min(depth,6)*13}px"><button class="folder-check" data-folder-check="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 선택" aria-pressed="${chosenRooms.has(f.id)}">${chosenRooms.has(f.id)?'✓':''}</button><button class="foldtoggle" data-folder="${esc(f.id)}" aria-expanded="${!folded[f.id]}"><span class="drag-handle" aria-hidden="true" title="끌어서 폴더 이동">⠿</span>${folded[f.id]?I.plus:I.down}${I.folder}<span class="foldname" title="${esc(f.name)}">${esc(f.name)}</span><span class="foldcount">${n}</span></button><button class="foldrename" data-folder-rename="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 이름 바꾸기" title="폴더 이름 바꾸기">${I.rename}</button><button class="foldmenu" data-folder-menu="${esc(f.id)}" aria-label="${esc(f.name)} 폴더 메뉴">⋮</button></div>`);
       if(!folded[f.id]){draw(f.id,depth+1);html.push(...roomsInSavedOrder(rooms.filter(r=>r.folderId===f.id),f.id).map(r=>roomHtml(r,depth+1)));}
     }
   };
@@ -2675,6 +2694,8 @@ function renderList(){
   $('#empty-new')?.addEventListener('click',createRoom);
 }
 const tuningSchema = {
+  updatePromptDelay: ['앱 시작 업데이트 안내 대기', APP_UPDATE_STARTUP_DELAY_MS, 0, APP_UPDATE_TIMER_MAX_MS, 1, 'ms'],
+  appUpdateInterval: ['독립 앱 새 버전 확인 간격', APP_UPDATE_INTERVAL_MS, 0, APP_UPDATE_TIMER_MAX_MS, 1, 'ms'],
   titleFont: ['제목 글자 크기', ROOM_TITLE_FONT_DEFAULT, ROOM_TITLE_FONT_MIN, ROOM_TITLE_FONT_MAX, ROOM_TITLE_FONT_STEP, 'px'],
   titleLeading: ['제목 줄 간격', ROOM_TITLE_LEADING_DEFAULT, ROOM_TITLE_LEADING_MIN, ROOM_TITLE_LEADING_MAX, ROOM_TITLE_LEADING_STEP, '배'],
   hold: ['길게 누르기', HOLD_DELAY, 100, 2000, 10, 'ms'],
@@ -2711,6 +2732,7 @@ for (const [name, definition] of Object.entries(tuningSchema)) {
   tuning[name] = Math.min(definition[3], Math.max(definition[2], value));
 }
 function applyTuning() {
+  if(appUpdateStartupTimer!==null)scheduleAppUpdatePrompt();
   document.documentElement.style.setProperty('--room-title-size',tuning.titleFont+'px');
   document.documentElement.style.setProperty('--room-title-leading',String(tuning.titleLeading));
   document.documentElement.dataset.titleMode=roomTitleMode==='full'?'full':'compact';
@@ -3141,7 +3163,7 @@ function beginDrag() {
   dragFrame = requestAnimationFrame(dragTick);
 }
 function startGesture(target, clientX, clientY, pointerId, touch) {
-  if (roomSelectionBusy || S.gq || sheetOpen || target.closest('.foldmenu, .folder-check, .room-checkbox')) return;
+  if (roomSelectionBusy || S.gq || sheetOpen || target.closest('.foldmenu, .foldrename, .folder-check, .room-checkbox')) return;
   const element = target.closest('[data-item-id]');
   if (!element || !listEl.contains(element)) return;
   if (roomGesture) { cancelDrag(); return; }
@@ -3238,6 +3260,8 @@ listEl.addEventListener('click', event => {
   const check = event.target.closest('[data-folder-check]');
   if (check) return toggleRoomChoice(check.dataset.folderCheck);
   const folderMenuButton = event.target.closest('[data-folder-menu]');
+  const folderRenameButton = event.target.closest('[data-folder-rename]');
+  if(folderRenameButton)return renameFolder(folderRenameButton.dataset.folderRename);
   if (folderMenuButton) return folderMenu(folderMenuButton.dataset.folderMenu);
   const folderToggle = event.target.closest('[data-folder]');
   if (folderToggle) return toggleFolder(folderToggle.dataset.folder);
@@ -3265,6 +3289,27 @@ function createRoom(){ editRoom(null); }
 /* Non-destructive, user-selected merge: copy missing memo records into one
    chosen destination. The source room, revisions and attachments remain intact.
    Deterministic IDs and provenance make retries idempotent across devices. */
+function backupMergeRooms(snapshot){
+  if(!snapshot||typeof snapshot.raw!=='string')throw Error('backup_invalid');
+  const data=JSON.parse(snapshot.raw);
+  if(!data||!data.rooms||Array.isArray(data.rooms)||!data.msgs||Array.isArray(data.msgs))throw Error('backup_invalid');
+  const all=Object.values(data.rooms),folders=new Map(all.filter(r=>r?.kind==='folder').map(r=>[r.id,r]));
+  return Object.entries(data.rooms).filter(([,r])=>r&&typeof r==='object'&&!r.kind&&!r.peerConflict).map(([key,room])=>{
+    const id=room.id||key;if(typeof id!=='string'||!id)throw Error('backup_invalid');
+    const messages=data.msgs[id]||[];if(!Array.isArray(messages))throw Error('backup_invalid');
+    const names=[],seen=new Set();let folder=folders.get(room.folderId);
+    while(folder&&!seen.has(folder.id)){seen.add(folder.id);names.unshift(folder.name||'폴더');folder=folders.get(folder.parentId);}
+    return {id,room:structuredClone(room),label:[...names,room.name||id].join(' / '),messages:structuredClone(messages),sourceId:'backup-room:'+id};
+  });
+}
+async function openBackupRoomMerge(backupId){
+  const targets=S.rooms.filter(r=>!r.kind&&!r.peerConflict);
+  if(!targets.length)return toast('먼저 메모를 합칠 방을 하나 만들어 주세요.');
+  const sheet=openScrim('<h2>백업의 메모를 어느 방에 합칠까요?</h2><p>현재 데이터 전체를 복원하지 않습니다. 다음 화면에서 백업 안의 방을 고르고, 차이를 확인한 뒤 필요한 메모만 추가합니다.</p><label for="backup-merge-target">합칠 기존 메모방</label><select class="field" id="backup-merge-target">'+targets.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join('')+'</select><div class="btns"><button class="ghost" data-cancel-backup-merge>취소</button><button class="ok" data-open-backup-merge>백업 방 선택</button></div>');
+  const choice=sheet.querySelector('#backup-merge-target');if(targets.some(r=>r.id===S.cur))choice.value=S.cur;
+  sheet.querySelector('[data-cancel-backup-merge]').onclick=closeSheet;
+  sheet.querySelector('[data-open-backup-merge]').onclick=()=>{const target=choice.value;closeSheet();void openManualRoomMerge(target,{backupId});};
+}
 async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessages){
   if(!targetId||!sourceId||targetId===sourceId)throw Error('merge_same_room');
   const valid=list=>Array.isArray(list)&&list.every(m=>m&&typeof m.id==='string'&&m.id.length);
@@ -3277,12 +3322,14 @@ async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessag
   const signature=m=>{
     const payload={...m};delete payload.id;delete payload.manualMergeSource;
     delete payload.peerMergeOrigins;
+    if(payload.images)payload.images=payload.images.map(image=>image.data?{data:image.data}:image.asset?{asset:image.asset}:image);
     return canonical(payload);
   };
   const targetById=new Map(targetMessages.map(m=>[m.id,m]));
   const externalCounts=new Map();
+  const previousImports=new Map();
   for(const m of targetMessages){
-    if(m.manualMergeSource?.roomId===sourceId)continue;
+    if(m.manualMergeSource?.roomId===sourceId){const key=JSON.stringify([m.manualMergeSource.messageId,signature(m)]);previousImports.set(key,(previousImports.get(key)||0)+1);continue;}
     const sig=signature(m);externalCounts.set(sig,(externalCounts.get(sig)||0)+1);
   }
   const groups=new Map();
@@ -3296,6 +3343,8 @@ async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessag
     const alreadyHere=externalCounts.get(sig)||0;
     for(let i=0;i<list.length;i++){
       const source=list[i];
+      const importKey=JSON.stringify([source.id,sig]),imported=previousImports.get(importKey)||0;
+      if(imported){previousImports.set(importKey,imported-1);skippedImported++;continue;}
       // A content-versioned digest retains later edited copies without overwriting earlier versions.
       const bytes=new TextEncoder().encode(canonical([targetId,sourceId,source.id,sig]));
       const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
@@ -3316,56 +3365,103 @@ async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessag
   }
   return {adds,sourceCount:sourceMessages.length,targetCount:targetMessages.length,skippedDuplicate,skippedImported};
 }
-async function openManualRoomMerge(targetId){
+async function openManualRoomMerge(targetId,{backupId=null}={}){
   const target=S.rooms.find(room=>room.id===targetId);
   if(!target||backend.mode!=='local')return toast('수동 통합은 이 기기의 로컬 저장 모드에서만 지원해요.');
   const candidates=S.rooms.filter(room=>room.id!==targetId&&!room.kind&&!room.peerConflict);
-  if(!candidates.length)return toast('합칠 다른 메모방이 없어요.');
-  const sheet=openScrim('<h2>다른 방의 메모 가져와 합치기</h2><p>목표 방: '+esc(target.name)+'<br>원본 방과 이력은 삭제되지 않습니다. 동일한 기록은 비교하고 새 기록만 복사합니다.</p>'+
-    '<label for="manual-merge-source">복구 방 또는 원본 방 선택</label>'+
-    '<select class="field" id="manual-merge-source">'+candidates.map(room=>'<option value="'+esc(room.id)+'">'+esc(room.name)+'</option>').join('')+'</select>'+
-    '<p id="manual-merge-preview">내용을 비교하면 복사할 메모 수가 표시됩니다.</p>'+
-    '<div class="btns"><button type="button" class="ghost" id="manual-merge-cancel">취소</button><button type="button" class="ok" id="manual-merge-check">내용 비교</button><button type="button" class="ok" id="manual-merge-commit" disabled>통합하기</button></div>');
-  const selected=sheet.querySelector('#manual-merge-source');
-  const info=sheet.querySelector('#manual-merge-preview');
-  const commit=sheet.querySelector('#manual-merge-commit');
-  let prepared=null;
-  selected.addEventListener('change',()=>{prepared=null;commit.disabled=true;info.textContent='내용 비교를 다시 실행해 주세요.';});
-  sheet.querySelector('#manual-merge-cancel').addEventListener('click',closeSheet);
-  sheet.querySelector('#manual-merge-check').addEventListener('click',async()=>{
-    const srcId=selected.value;prepared=null;commit.disabled=true;info.textContent='메모를 확인하는 중…';
+  let backups=[];try{backups=await vaultAll('snapshots');}catch(_){}
+  if(!candidates.length&&!backups.length)return toast('합칠 다른 메모방이나 저장된 백업이 없어요.');
+  const roomOptions=candidates.map(room=>'<option value="room:'+esc(room.id)+'">'+esc(room.name)+'</option>').join('');
+  const backupOptions=backups.map(record=>'<option value="backup:'+esc(record.id)+'">'+esc(vaultDate(record.createdAt)+' · '+record.reason)+'</option>').join('');
+  const sheet=openScrim('<h2>메모방·백업에서 합치기</h2><p>합칠 기존 방: '+esc(target.name)+'<br>원본 방과 백업은 그대로 두고 필요한 메모만 추가합니다. 선택하면 차이를 자동으로 비교합니다.</p>'+
+    '<label for="manual-merge-source">가져올 원본</label><select class="field" id="manual-merge-source">'+
+    (roomOptions?'<optgroup label="현재 메모방">'+roomOptions+'</optgroup>':'')+
+    (backupOptions?'<optgroup label="파일 저장 · 백업·복원">'+backupOptions+'</optgroup>':'')+'</select>'+
+    '<div id="manual-backup-room-row" hidden><label for="manual-backup-room">백업 안의 메모방</label><select class="field" id="manual-backup-room"></select></div>'+
+    '<p id="manual-merge-preview" role="status">원본을 선택하면 비교 결과가 표시됩니다.</p>'+
+    '<div class="btns"><button type="button" class="ghost" id="manual-merge-cancel">취소</button><button type="button" class="ghost" id="manual-merge-check">다시 비교</button><button type="button" class="ok" id="manual-merge-commit" disabled>필요한 메모 합치기</button></div>');
+  const selected=sheet.querySelector('#manual-merge-source'),backupRoom=sheet.querySelector('#manual-backup-room');
+  const row=sheet.querySelector('#manual-backup-room-row'),info=sheet.querySelector('#manual-merge-preview');
+  const commit=sheet.querySelector('#manual-merge-commit'),check=sheet.querySelector('#manual-merge-check');
+  let prepared=null,revision=0,choices=[];
+  if(backupId&&backups.some(r=>r.id===backupId))selected.value='backup:'+backupId;
+  async function readSource(){
+    if(selected.value.startsWith('room:')){
+      const id=selected.value.slice('room:'.length),room=S.rooms.find(r=>r.id===id&&!r.kind&&!r.peerConflict);
+      if(!room)throw Error('merge_room_removed');
+      return {id,name:room.name,messages:await backend.loadAllMsgs(id),backupId:null};
+    }
+    const id=selected.value.slice('backup:'.length),record=await vaultGet('snapshots',id);
+    if(!record)throw Error('backup_missing');
+    const source=backupMergeRooms(record).find(r=>r.id===backupRoom.value);
+    if(!source)return null;
+    return {id:source.sourceId,name:'백업 · '+source.label,messages:source.messages,backupId:id,backupRaw:record.raw,backupRoomId:source.id};
+  }
+  async function compare(){
+    const mine=++revision;prepared=null;commit.disabled=true;check.disabled=true;info.textContent='메모를 자동으로 비교하는 중…';
     try{
-      const [targetMessages,sourceMessages]=await Promise.all([backend.loadAllMsgs(targetId),backend.loadAllMsgs(srcId)]);
-      const plan=await planManualRoomMerge(targetId,srcId,targetMessages,sourceMessages);
-      if(!sheet.isConnected||selected.value!==srcId)return;
-      prepared={srcId,sourceMessages,targetMessages,plan};
-      info.textContent='원본 '+plan.sourceCount+'개 / 대상 '+plan.targetCount+'개 · 새로 가져올 메모 '+plan.adds.length+'개 · 완전 일치 '+plan.skippedDuplicate+'개 · 이전에 가져옴 '+plan.skippedImported+'개. 댓글·사진·작성일을 함께 보존합니다.';
+      const source=await readSource();if(!sheet.isConnected||mine!==revision)return;if(!source){info.textContent='백업 안에서 가져올 메모방을 골라 주세요.';return;}
+      const targetMessages=await backend.loadAllMsgs(targetId);
+      // Inline/asset storage differences must not make identical photos look new.
+      const [portableTarget,portableSource]=await Promise.all([portableMessages(targetMessages),portableMessages(source.messages)]);
+      const plan=await planManualRoomMerge(targetId,source.id,portableTarget,portableSource);
+      if(!sheet.isConnected||mine!==revision)return;
+      prepared={selection:selected.value,source,targetMessages,plan};
+      info.textContent=source.name+' · 원본 '+plan.sourceCount+'개 / 대상 '+plan.targetCount+'개 · 새로 가져올 메모 '+plan.adds.length+'개 · 완전 일치 '+plan.skippedDuplicate+'개 · 이전에 가져옴 '+plan.skippedImported+'개. 댓글·사진·작성일을 함께 보존합니다.';
       commit.disabled=!plan.adds.length;
-    }catch(e){if(sheet.isConnected)info.textContent='비교하지 못했습니다. 오류: '+String(e.message||e);}
-  });
+    }catch(e){if(sheet.isConnected&&mine===revision)info.textContent='비교하지 못했습니다. 원본은 유지됩니다. 오류: '+String(e.message||e);}
+    finally{if(sheet.isConnected&&mine===revision)check.disabled=false;}
+  }
+  async function sourceChanged(){
+    const mine=++revision,value=selected.value;prepared=null;commit.disabled=true;choices=[];
+    row.hidden=!selected.value.startsWith('backup:');
+    if(!row.hidden){
+      try{
+        const record=await vaultGet('snapshots',selected.value.slice('backup:'.length));choices=backupMergeRooms(record);
+        if(!sheet.isConnected||mine!==revision||selected.value!==value)return;
+        backupRoom.innerHTML='<option value="">백업 안의 방을 선택하세요.</option>'+choices.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.label)+' · '+r.messages.length+'개</option>').join('');
+        if(choices.some(r=>r.id===targetId))backupRoom.value=targetId;
+        else if(choices.length===1)backupRoom.value=choices[0].id;
+      }catch(e){if(sheet.isConnected&&mine===revision)info.textContent='백업을 읽지 못했습니다. 오류: '+String(e.message||e);return;}
+    }
+    await compare();
+  }
+  selected.addEventListener('change',()=>void sourceChanged());backupRoom.addEventListener('change',()=>void compare());
+  check.addEventListener('click',()=>void compare());sheet.querySelector('#manual-merge-cancel').addEventListener('click',closeSheet);
   commit.addEventListener('click',async()=>{
     if(!prepared||commit.disabled)return;
-    const {srcId,sourceMessages,targetMessages,plan}=prepared;
-    const sourceName=S.rooms.find(r=>r.id===srcId)?.name||'선택한 방';
+    const state=prepared,{source,plan,targetMessages}=state;
     closeSheet();
-    if(!await ask({title:'메모방 내용을 합칠까요?',body:sourceName+'의 메모 '+plan.adds.length+'개를 '+target.name+' 방에 추가합니다. 원본 방은 남고, 기존 메모를 덮어쓰지 않습니다.',ok:'원본 보존하고 통합'}))return;
+    if(!await ask({title:'필요한 메모를 합칠까요?',body:source.name+'의 메모 '+plan.adds.length+'개를 '+target.name+' 방에 추가합니다. 원본과 백업은 남고, 기존 메모를 덮어쓰지 않습니다.',ok:'원본 보존하고 통합'}))return;
     try{
-      if(!S.rooms.some(r=>r.id===srcId)||!S.rooms.some(r=>r.id===targetId))throw Error('merge_room_removed');
-      const [currentSource,currentTarget]=await Promise.all([backend.loadAllMsgs(srcId),backend.loadAllMsgs(targetId)]);
-      if(JSON.stringify(sourceMessages)!==JSON.stringify(currentSource)||JSON.stringify(targetMessages)!==JSON.stringify(currentTarget))
-        throw Error('merge_preview_stale');
-      const fresh=await planManualRoomMerge(targetId,srcId,currentTarget,currentSource);
+      if(!S.rooms.some(r=>r.id===targetId))throw Error('merge_room_removed');
+      const currentTarget=await backend.loadAllMsgs(targetId);
+      let currentSource;
+      if(source.backupId){
+        const record=await vaultGet('snapshots',source.backupId);
+        if(!record||record.raw!==source.backupRaw)throw Error('merge_preview_stale');
+        currentSource=backupMergeRooms(record).find(r=>r.id===source.backupRoomId)?.messages;
+      }else{
+        if(!S.rooms.some(r=>r.id===source.id))throw Error('merge_room_removed');
+        currentSource=await backend.loadAllMsgs(source.id);
+      }
+      if(JSON.stringify(currentSource)!==JSON.stringify(source.messages)||JSON.stringify(currentTarget)!==JSON.stringify(targetMessages))throw Error('merge_preview_stale');
+      const [portableTarget,portableSource]=await Promise.all([portableMessages(currentTarget),portableMessages(currentSource)]);
+      const fresh=await planManualRoomMerge(targetId,source.id,portableTarget,portableSource);
       if(fresh.adds.length!==plan.adds.length)throw Error('merge_preview_stale');
-      // Mandatory local backup before the atomic insertion; never delete source.
-      await createVaultSnapshot('수동 메모방 통합 전: '+target.name,true);
-      await backend.applyTransfer(fresh.adds.map(msg=>({type:'msg',rid:targetId,value:msg,expected:null})));
-      S.gcache=null;
-      toast('메모 '+fresh.adds.length+'개를 안전하게 합쳤어요. 원본 방은 그대로 남아 있어요.');
+      // A merge's safety backup must not prune any pre-existing backup.
+      await createVaultSnapshot('메모방·백업 통합 전: '+target.name,true,{preserveExisting:true});
+      // Check again after the asynchronous backup, before one atomic insertion.
+      const guard=backend.peerSnapshot();
+      if(JSON.stringify(guard.data.msgs[targetId]||[])!==JSON.stringify(currentTarget))throw Error('merge_preview_stale');
+      if(!source.backupId&&JSON.stringify(guard.data.msgs[source.id]||[])!==JSON.stringify(currentSource))throw Error('merge_preview_stale');
+      if(source.backupId)for(const message of fresh.adds)message.manualMergeSource.backupId=source.backupId;
+      await backend.applyTransfer(fresh.adds.map(msg=>({type:'msg',rid:targetId,value:msg,expected:null})),{expectedToken:guard.token});
+      S.gcache=null;toast('메모 '+fresh.adds.length+'개를 합쳤어요. 원본 방과 백업은 그대로 남아 있어요.');
       if(S.cur===targetId)renderMsgs();
-    }catch(e){
-      toast('통합을 중단했습니다. 원본은 그대로 보존됩니다. '+String(e.message||e),true);
-    }
+    }catch(e){toast('통합을 중단했습니다. 원본은 보존됩니다. '+String(e.message||e),true);}
   });
+  await sourceChanged();
 }
 
 function roomMenu(id){
@@ -3373,7 +3469,7 @@ function roomMenu(id){
   menu(r.name, [
     {icon:'pin', label: r.pinned ? '상단 고정 해제' : '상단에 고정', run: () => backend.updateRoom(id, {pinned:!r.pinned}).catch(() => toast('바꾸지 못했어요.'))},
     {icon:'rename', label:'이름·라벨 편집', run: () => editRoom(id)},
-    {icon:'folder',label:'다른 메모방 내용 합치기 · 원본 보존',run:()=>openManualRoomMerge(id)},
+    {icon:'folder',label:'메모방·백업에서 합치기 · 원본 보존',run:()=>openManualRoomMerge(id)},
     {icon:'folder',label:'폴더로 이동',run:()=>moveRoom(id)},
     {icon:'save',label:'이 방 Markdown 묶음으로 저장',run:()=>exportTransfer([id])},
     {icon:'pdf', label:'PDF로 내보내기', run: () => exportPdf(id)},
@@ -4281,6 +4377,7 @@ peerClient=window.MemoTalkPeerClient.create({
   read:readMirrorFile,write:writeMirrorFile,folder:getMirrorFolder,permission:ensureMirrorPermission,
   imageData:imageDataUrl,archiveRoomId:rid=>archiveRoomId(rid),status:fileMirrorStatus,ask,menu,toast,openScrim,closeSheet,esc,
   showLocation:showCurrentLocation,
+  showBackups:showVaultBackups,
   showSingleScreen:window.AndroidMemoTalk?showSingleScreenSettings:null,
   editing:()=>!!S.editing||S.sending||!!sheetOpen?.busy,
   ready:()=>S.roomsLoaded,
@@ -4694,9 +4791,9 @@ async function checkAppUpdates({manual=false}={}){
     return;
   }
   let last=0;try{last=Number(localStorage.getItem('memotalk.update.checkedAt')||0)||0;}catch(_){}
-  if(!manual&&Date.now()-last<24*60*60*1000)return;
+  if(!manual&&Date.now()-last<tuning.appUpdateInterval)return;
   try{
-    const ctrl=new AbortController(),timeout=setTimeout(()=>ctrl.abort(),8000);
+    const ctrl=new AbortController(),timeout=setTimeout(()=>ctrl.abort(),APP_UPDATE_NETWORK_TIMEOUT_MS);
     let response;
     try{response=await fetch(APP_RELEASE_API,{headers:{Accept:'application/vnd.github+json'},signal:ctrl.signal});}
     finally{clearTimeout(timeout);}
@@ -5200,7 +5297,8 @@ async function boot(){
 autosize(); updateSend();
 setInterval(()=>{if(backend?.mode==='local')scheduleVaultAutoBackup();},30*60*1000);
 boot();
-setTimeout(()=>{void checkAppUpdates({manual:false});},2500);
+function scheduleAppUpdatePrompt(){clearTimeout(appUpdateStartupTimer);appUpdateStartupTimer=setTimeout(()=>{appUpdateStartupTimer=null;void checkAppUpdates({manual:false});},tuning.updatePromptDelay);}
+scheduleAppUpdatePrompt();
 })();
 }
 </script>

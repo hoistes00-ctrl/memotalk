@@ -1,5 +1,13 @@
 'use strict';
 const {Plugin,ItemView,PluginSettingTab,Setting,Modal,Notice,Platform,normalizePath,requestUrl}=require('obsidian');
+// Custom default: six hours between automatic checks; lower checks on more opens.
+const UPDATE_CHECK_INTERVAL_MS=6*60*60*1000;
+// Custom default: 12 seconds (Obsidian Notice default is 5); higher stays longer, zero stays until dismissed.
+const UPDATE_NOTICE_DURATION_MS=12000;
+// Browser timer valid nonnegative range; larger permits longer user-selected delays.
+const UPDATE_TIMER_MAX_MS=2147483647;
+// Display-unit conversions, independent of user interaction speed.
+const UPDATE_HOUR_MS=3600000,UPDATE_SECOND_MS=1000;
 // Backend byte limit, matching the native bridge. Higher permits larger binary files.
 const MAX_BYTES=64*1024*1024;
 // Backend path limit, matching native traversal. Higher permits deeper descendants.
@@ -189,19 +197,22 @@ function compareVersions(a,b){
   for(let i=0;i<3;i++)if(left[i]!==right[i])return Math.sign(left[i]-right[i]);
   return 0;
 }
-function selectPluginUpdate(releases,installed){
+function selectPluginUpdate(releases,installed,installedTag=''){
   if(!Array.isArray(releases))return null;
+  const known=/^modutalk-obsidian-v(\d+\.\d+\.\d+)-(?:browser|virtual|test)\.(\d+)$/.exec(installedTag);
   const options=[];
   for(const release of releases){
     if(release?.draft||!release?.prerelease)continue;
     const match=/^modutalk-obsidian-v(\d+\.\d+\.\d+)-(?:browser|virtual|test)\.(\d+)$/.exec(release.tag_name||'');
-    if(!match||!versionParts(installed)||compareVersions(match[1],installed)<=0)continue;
-    if(typeof release.html_url!=='string'||!release.html_url.startsWith('https://github.com/hoistes00-ctrl/memotalk/releases/tag/'))continue;
+    if(!match||!versionParts(installed))continue;
+    const order=compareVersions(match[1],installed);
+    if(order<0||(order===0&&(!known||known[1]!==installed||Number(match[2])<=Number(known[2]))))continue;
+    if(release.html_url!=='https://github.com/hoistes00-ctrl/memotalk/releases/tag/'+release.tag_name)continue;
     const files=Object.fromEntries((release.assets||[]).filter(a=>PLUGIN_FILES.includes(a.name)).map(a=>[a.name,a]));
     if(!PLUGIN_FILES.every(name=>files[name]&&Number.isInteger(files[name].size)&&files[name].size>0&&
       files[name].size<=PLUGIN_MAX_BYTES[name]&&/^sha256:[a-f0-9]{64}$/.test(files[name].digest||'')&&
-      typeof files[name].browser_download_url==='string'&&files[name].browser_download_url.startsWith(
-       'https://github.com/hoistes00-ctrl/memotalk/releases/download/'+release.tag_name+'/')))continue;
+      files[name].browser_download_url===
+       'https://github.com/hoistes00-ctrl/memotalk/releases/download/'+release.tag_name+'/'+name))continue;
     options.push({...release,version:match[1],build:Number(match[2]),files});
   }
   options.sort((a,b)=>compareVersions(b.version,a.version)||b.build-a.build);
@@ -284,22 +295,67 @@ class ModutalkSettings extends PluginSettingTab {
     this.containerEl.empty();this.containerEl.createEl('h2',{text:'모두톡 한 화면 동기화'});
     new Setting(this.containerEl).setName('공유 폴더').setDesc(this.plugin.data.folder||'아직 연결하지 않았습니다.').addButton(b=>b.setButtonText('모두톡 열기').onClick(()=>this.plugin.openView()));
     this.containerEl.createEl('p',{text:'메모 화면과 Obsidian 전송을 같은 앱에서 실행합니다. 기존 모두톡 앱의 데이터는 유지됩니다. 속도와 제목 표시는 모두톡 화면 안의 설정에서 조절할 수 있습니다.'});
+    this.plugin.addUpdateTuning(this.containerEl);
   }
 }
 class ModutalkPlugin extends Plugin {
+  installedUpdateVersion(){
+    const tag=this.data.appliedUpdateTag||'',known=/^modutalk-obsidian-v(\d+\.\d+\.\d+)-(?:browser|virtual|test)\.\d+$/.exec(tag);
+    return {version:known&&compareVersions(known[1],this.manifest.version)>0?known[1]:this.manifest.version,tag};
+  }
+  updateSettingKey(name){return 'modutalk.sync-view.'+(this.data.groupId||'unconnected')+'.memotalk.hosted.'+name;}
+  updateTiming(name,defaultValue){
+    try{const raw=localStorage.getItem(this.updateSettingKey(name));if(raw!==null){const value=Number(raw);if(Number.isFinite(value)&&value>=0&&value<=UPDATE_TIMER_MAX_MS)return Math.round(value);}}catch(_){}
+    return defaultValue;
+  }
+  rescheduleUpdateNotice(){
+    clearTimeout(this.updateNoticeTimer);this.updateNoticeTimer=null;
+    if(!this.updateNotice)return;
+    const duration=this.updateTiming('updateNoticeMs',UPDATE_NOTICE_DURATION_MS);
+    if(duration>0)this.updateNoticeTimer=setTimeout(()=>{this.updateNotice?.hide?.();this.updateNotice=null;},duration);
+  }
+  showUpdateNotice(message){
+    this.updateNotice?.hide?.();this.updateNotice=new Notice(message,0);this.rescheduleUpdateNotice();
+  }
+  addUpdateTuning(container){
+    const control=(name,label,description,defaultValue,unit)=>{
+      let input;
+      const setting=new Setting(container).setName(label).setDesc(description);
+      const apply=()=>{input.setValue(String(this.updateTiming(name,defaultValue)/unit));if(name==='updateNoticeMs')this.rescheduleUpdateNotice();};
+      setting.addText(text=>{
+        input=text;text.inputEl.type='number';text.inputEl.min='0';text.inputEl.max=String(UPDATE_TIMER_MAX_MS/unit);text.inputEl.step=String(1/unit);
+        text.onChange(value=>{const ms=Number(value)*unit;if(value.trim()===''||!Number.isFinite(ms)||ms<0||ms>UPDATE_TIMER_MAX_MS)return;try{localStorage.setItem(this.updateSettingKey(name),String(Math.round(ms)));}catch(_){this.showUpdateNotice('조절 값을 저장하지 못했습니다.');}if(name==='updateNoticeMs')this.rescheduleUpdateNotice();});
+      }).addButton(button=>button.setButtonText('↺').setTooltip('기본값으로 복귀').onClick(()=>{try{localStorage.removeItem(this.updateSettingKey(name));}catch(_){}apply();}));
+      apply();
+    };
+    control('updateIntervalMs','새 버전 자동 확인 간격 (시간)','0이면 화면을 열 때마다 확인합니다. 변경한 값은 다음 확인에 바로 적용됩니다.',UPDATE_CHECK_INTERVAL_MS,UPDATE_HOUR_MS);
+    control('updateNoticeMs','업데이트 안내 표시 시간 (초)','현재 열린 안내에도 즉시 적용됩니다. 0이면 직접 닫을 때까지 표시합니다.',UPDATE_NOTICE_DURATION_MS,UPDATE_SECOND_MS);
+  }
+  async ensureUpgradeSafe(){
+    for(const leaf of this.app.workspace?.getLeavesOfType?.(VIEW_TYPE)||[]){
+      const w=leaf.view.frame?.contentWindow;if(!w?.__modutalkHostReady)continue;
+      if(w.document.querySelector('#input')?.value||!w.document.querySelector('#editbar')?.hidden||w.document.querySelectorAll('#pending img').length)
+        throw Error('작성 중인 메모·수정·사진을 먼저 저장해 주세요.');
+      const cfg=JSON.parse(w.localStorage.getItem('memotalk.peer.config')||'null');
+      const state=cfg?.groupId?await w.MemoTalkPeerClient.stateStore(cfg.groupId):null;
+      if(state?.outbox?.length||state?.pending)throw Error('보낼 공유 기록의 처리가 끝난 뒤 다시 업그레이드해 주세요.');
+    }
+  }
   async checkForUpdates({manual=false}={}){
-    if(this.updating)return;
+    if(this.updating||this.checking)return;
     // Regular opens do not cause repeated prompts or block the memo editor.
-    if(!manual&&Date.now()-(this.data.lastUpdateCheckAt||0)<6*60*60*1000)return;
+    if(!manual&&Date.now()-(this.data.lastUpdateCheckAt||0)<this.updateTiming('updateIntervalMs',UPDATE_CHECK_INTERVAL_MS))return;
+    this.checking=true;
     try{
       const reply=await requestUrl({url:UPDATE_API,headers:{Accept:'application/vnd.github+json'},throw:false});
       if(reply.status!==200)throw Error('업데이트 서버에 연결할 수 없습니다.');
-      const release=selectPluginUpdate(reply.json,this.manifest.version);
+      const installed=this.installedUpdateVersion(),release=selectPluginUpdate(reply.json,installed.version,installed.tag);
       this.data.lastUpdateCheckAt=Date.now();await this.saveData(this.data);
-      if(!release){if(manual)new Notice('현재 최신 모두톡 연동 플러그인을 사용 중입니다.');return;}
+      if(!release){if(manual)this.showUpdateNotice(installed.version!==this.manifest.version?'다운로드한 업데이트를 적용하려면 모두톡 플러그인을 껐다 켜 주세요.':'현재 최신 모두톡 연동 플러그인을 사용 중입니다.');return;}
       if(!manual&&this.data.dismissedUpdateTag===release.tag_name)return;
       this.showUpdateChoice(release);
-    }catch(e){if(manual)new Notice('업데이트 확인 실패: '+String(e.message||e));}
+    }catch(e){if(manual)this.showUpdateNotice('업데이트 확인 실패: '+String(e.message||e));}
+    finally{this.checking=false;}
   }
   showUpdateChoice(release){
     const modal=new Modal(this.app);
@@ -319,40 +375,59 @@ class ModutalkPlugin extends Plugin {
   async installPluginUpdate(release){
     if(this.updating)return;
     this.updating=true;
-    new Notice('업데이트 파일을 검증하고 있습니다.');
+    this.showUpdateNotice('업데이트 파일을 검증하고 있습니다.');
+    let backup=null,wrote=false,rollbackVerified=false,restorationFailures=[];
     try{
-      if(compareVersions(release.version,this.manifest.version)<=0)throw Error('이미 설치된 버전입니다.');
+      const installed=this.installedUpdateVersion(),selected=selectPluginUpdate([release],installed.version,installed.tag);
+      if(!selected)throw Error('이미 설치됐거나 검증 대상이 아닌 버전입니다.');
+      release=selected;await this.ensureUpgradeSafe();
       // All bytes and checksums are verified BEFORE modifying a plugin file.
       const files=await fetchVerifiedPluginFiles(release);
+      await this.ensureUpgradeSafe();
       const adapter=this.app.vault.adapter,dir=this.manifest.dir;
       if(!dir||!dir.endsWith('/'+this.manifest.id))throw Error('plugin_dir_invalid');
-      const original={};
+      const original={},originalData=JSON.parse(JSON.stringify(this.data));
       for(const name of PLUGIN_FILES)original[name]=new Uint8Array(await adapter.readBinary(dir+'/'+name));
+      const originalConfig=await adapter.exists(dir+'/data.json')?new Uint8Array(await adapter.readBinary(dir+'/data.json')):null;
       // Persistent copies recover even from an unexpected app exit while writing.
-      const backup=dir+'/.modutalk-backup-'+this.manifest.version;
-      if(!(await adapter.exists(backup)))await adapter.mkdir(backup);
-      for(const name of PLUGIN_FILES)await adapter.writeBinary(backup+'/'+name,original[name].buffer);
-      let wrote=false;
+      backup=dir+'/.modutalk-backup-'+this.manifest.version+'-'+crypto.randomUUID();
+      await adapter.mkdir(backup);
+      const originals={...original,...(originalConfig?{'data.json':originalConfig}:{})};
+      for(const [name,bytes]of Object.entries(originals)){
+        await adapter.writeBinary(backup+'/'+name,bytes.buffer);
+        if(await sha256Hex(new Uint8Array(await adapter.readBinary(backup+'/'+name)))!==await sha256Hex(bytes))throw Error('update_backup_verify_'+name);
+      }
+      const attempted=[];let configAttempted=false;
       try{
+        // A concurrent external edit must be detected before touching live code.
+        for(const name of PLUGIN_FILES)if(await sha256Hex(new Uint8Array(await adapter.readBinary(dir+'/'+name)))!==await sha256Hex(original[name]))throw Error('update_source_changed_'+name);
         for(const name of PLUGIN_FILES){
-          wrote=true;
+          wrote=true;attempted.push(name);
           await adapter.writeBinary(dir+'/'+name,files[name].buffer);
           const verify=new Uint8Array(await adapter.readBinary(dir+'/'+name));
           if('sha256:'+await sha256Hex(verify)!==release.files[name].digest)
             throw Error('update_write_verify_'+name);
         }
+        this.data.appliedUpdateTag=release.tag_name;
+        this.data.dismissedUpdateTag='';this.data.lastUpdateBackup=backup;
+        configAttempted=true;await this.saveData(this.data);
       }catch(e){
-        if(wrote)for(const name of PLUGIN_FILES){
-          try{await adapter.writeBinary(dir+'/'+name,original[name].buffer);}catch(_){}
+        for(const name of attempted){
+          try{await adapter.writeBinary(dir+'/'+name,original[name].buffer);if(await sha256Hex(new Uint8Array(await adapter.readBinary(dir+'/'+name)))!==await sha256Hex(original[name]))throw Error('restore_verify');}catch(_){restorationFailures.push(name);}
         }
+        this.data=originalData;
+        if(configAttempted&&originalConfig){try{await adapter.writeBinary(dir+'/data.json',originalConfig.buffer);if(await sha256Hex(new Uint8Array(await adapter.readBinary(dir+'/data.json')))!==await sha256Hex(originalConfig))throw Error('restore_config_verify');}catch(_){restorationFailures.push('data.json');}}
+        rollbackVerified=wrote&&restorationFailures.length===0;
         throw e;
       }
-      this.data.appliedUpdateTag=release.tag_name;
-      this.data.dismissedUpdateTag='';
-      await this.saveData(this.data);
-      new Notice('모두톡 '+release.version+' 설치 완료. Obsidian에서 모두톡 플러그인을 껐다 켜면 적용됩니다.',12000);
+      this.lastUpdateResult={ok:true,version:release.version,tag:release.tag_name,backup};
+      this.showUpdateNotice('모두톡 '+release.version+' 설치 완료. Obsidian에서 모두톡 플러그인을 껐다 켜면 적용됩니다.');
+      return this.lastUpdateResult;
     }catch(e){
-      new Notice('업그레이드에 실패했습니다. 현재 플러그인 파일을 유지하거나 복원했습니다: '+String(e.message||e),12000);
+      const detail=restorationFailures.length?'복원 확인에 실패했습니다 ('+restorationFailures.join(', ')+'). 보관한 이전 파일로 복구가 필요합니다.':rollbackVerified?'이전 파일 복원을 확인했습니다.':'기존 플러그인 파일을 변경하지 않았습니다.';
+      this.lastUpdateResult={ok:false,error:String(e.message||e),backup,rollbackVerified,restorationFailures};
+      this.showUpdateNotice('업그레이드 실패. '+detail+' '+String(e.message||e));
+      return this.lastUpdateResult;
     }finally{this.updating=false;}
   }
   refreshImmersive(){
@@ -379,6 +454,7 @@ class ModutalkPlugin extends Plugin {
     const leaf=this.app.workspace.getLeaf('tab');await leaf.setViewState({type:VIEW_TYPE,active:true});await this.app.workspace.revealLeaf(leaf);this.refreshImmersive();return leaf;
   }
   onunload(){
+    clearTimeout(this.updateNoticeTimer);this.updateNotice?.hide?.();this.updateNotice=null;
     document.body.classList.remove('modutalk-immersive');
     for(const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))leaf.view.host?.dispose();
   }

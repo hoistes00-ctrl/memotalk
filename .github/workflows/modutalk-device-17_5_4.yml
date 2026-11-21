@@ -1,0 +1,45 @@
+name: Verify and publish Modutalk 17.5.4 plugin
+on:
+  push:
+    branches: [feature/backup-merge-and-device-update-17_5_4]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: modutalk-device-17-5-4
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate source, transactional merges and updater recovery
+        run: |
+          python scripts/sync-app-info.py --check
+          python scripts/build-obsidian-view.py --check
+          node tests/check-ui.mjs
+          node --test tests/in-app-updates.test.cjs tests/manual-room-merge-and-sort.test.cjs tests/peer-backend.test.cjs tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs tests/peer-room-merge.test.cjs
+      - name: Install isolated browser tools
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Exercise backup merges, mobile folder rename and two-device sync
+        run: |
+          python tests/manual-room-merge-browser.py
+          python tests/peer-browser-smoke.py
+          python tests/location-title-browser.py
+      - name: Publish opt-in plugin candidate for physical update verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/assets
+          python scripts/build-obsidian-view.py --check --plugin-only --zip dist/Modutalk-Obsidian-17.5.4-test.1.zip
+          for name in main.js app.html styles.css manifest.json; do cp "obsidian/modutalk-sync-view/$name" "dist/assets/$name"; done
+          (cd dist && sha256sum Modutalk-Obsidian-17.5.4-test.1.zip assets/* > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
+          gh release create modutalk-obsidian-v17.5.4-test.1 dist/Modutalk-Obsidian-17.5.4-test.1.zip dist/SHA256SUMS.txt dist/assets/* --target "$GITHUB_SHA" --prerelease --title '모두톡 17.5.4 백업 통합·폴더 이름 변경' --notes-file docs/17.5.4-device-release.ko.md

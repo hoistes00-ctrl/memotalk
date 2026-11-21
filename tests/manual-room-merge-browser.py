@@ -17,6 +17,53 @@ DATA={'seeded':True,'rooms':{
          {'id':'snew','ts':300,'text':'복구된 메모','comments':[{'id':'c1','ts':310,'text':'복구된 댓글'}],
           'images':[{'data':SAMPLE_PNG}]}]}}
 
+def backup_and_folder_checks(page,device):
+    if page.locator('#btn-back').is_visible():page.locator('#btn-back').click()
+    page.locator('#btn-new-folder').click();page.locator('#prompt-field').fill('검증 새 폴더')
+    page.locator('#prompt-field').press('Enter')
+    page.wait_for_function("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).rooms).some(r=>r.kind==='folder'&&r.name==='검증 새 폴더')")
+    before=page.evaluate("JSON.parse(localStorage.getItem('memotalk.v1'))")
+    folder=next(r for r in before['rooms'].values() if r.get('kind')=='folder' and r['name']=='검증 새 폴더')
+    edit=page.locator('[data-folder-rename="'+folder['id']+'"]')
+    if device=='mobile':edit.tap()
+    else:edit.click()
+    assert page.locator('#prompt-field').input_value()=='검증 새 폴더'
+    page.locator('#prompt-field').fill('검증 이름 변경 완료');page.get_by_role('button',name='이름 저장',exact=True).click()
+    page.wait_for_function("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).rooms).some(r=>r.name==='검증 이름 변경 완료')")
+    renamed=page.evaluate("JSON.parse(localStorage.getItem('memotalk.v1'))")
+    expected=json.loads(json.dumps(before));expected['rooms'][folder['id']]['name']='검증 이름 변경 완료'
+    assert renamed==expected,'renaming changes only the selected folder name'
+    historical={'seeded':True,'rooms':{'old-folder':{'id':'old-folder','kind':'folder','name':'백업 분류'},'main-room':{**DATA['rooms']['main-room'],'folderId':'old-folder'}},'msgs':{'main-room':[{'id':'backup-common','ts':100,'text':'공통 메모'},{'id':'backup-only-memo','ts':50,'text':'백업에만 남은 메모','comments':[{'id':'bc','ts':51,'text':'백업 댓글'}],'images':[{'data':SAMPLE_PNG}]}]}}
+    # Isolated browser fixture only: seed twenty backups, including the oldest one.
+    records=page.evaluate("""async historical=>{
+      const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('memotalk-safety-v17',1);r.onupgradeneeded=()=>{for(const n of ['snapshots','trash'])if(!r.result.objectStoreNames.contains(n))r.result.createObjectStore(n,{keyPath:'id'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+      const raw=JSON.stringify(historical),rows=[{id:'backup-only',createdAt:1,reason:'검증 옛 백업',raw}];
+      for(let i=1;i<19;i++)rows.push({id:'old-'+i,createdAt:i+1,reason:'검증 보관본',raw});
+      rows.push({id:'auto-recent',createdAt:Date.now(),reason:'자동 백업',raw:localStorage.getItem('memotalk.v1')});
+      await new Promise((resolve,reject)=>{const tx=db.transaction('snapshots','readwrite'),s=tx.objectStore('snapshots');s.clear();rows.forEach(r=>s.put(r));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();return rows;
+    }""",historical)
+    page.locator('.room[data-id="main-room"]').click()
+    if page.locator('#btn-back').is_visible():page.locator('#btn-back').click()
+    page.locator('#btn-more').click();page.get_by_role('button',name='자동 백업 관리 · 복원',exact=True).click()
+    page.locator('[data-b-merge="backup-only"]').click();page.locator('#backup-merge-target').select_option('main-room')
+    page.locator('[data-open-backup-merge]').click()
+    page.wait_for_function("document.querySelector('#manual-merge-preview')?.textContent.includes('새로 가져올 메모 1개')")
+    assert page.locator('#manual-backup-room').input_value()=='main-room'
+    assert '백업 분류 / 소설 아이디어' in page.locator('#manual-backup-room').inner_text()
+    page.locator('#manual-merge-commit').click();page.get_by_role('button',name='원본 보존하고 통합',exact=True).click()
+    page.wait_for_function("JSON.parse(localStorage.getItem('memotalk.v1')).msgs['main-room'].some(m=>m.text==='백업에만 남은 메모')")
+    data=page.evaluate("JSON.parse(localStorage.getItem('memotalk.v1'))")
+    copied=next(m for m in data['msgs']['main-room'] if m['text']=='백업에만 남은 메모')
+    assert copied['ts']==50 and copied['comments'][0]['text']=='백업 댓글' and copied['images'][0]['data']==SAMPLE_PNG
+    assert copied['manualMergeSource']['backupId']=='backup-only'
+    assert data['msgs']['recovery-room']==DATA['msgs']['recovery-room']
+    after=page.evaluate("""async()=>{const db=await new Promise(r=>{const q=indexedDB.open('memotalk-safety-v17',1);q.onsuccess=()=>r(q.result);});const rows=await new Promise(r=>{const q=db.transaction('snapshots').objectStore('snapshots').getAll();q.onsuccess=()=>r(q.result);});db.close();return rows;}""")
+    assert len(after)>=21 and all(record in after for record in records),'a merge never prunes the selected or other original backups'
+    page.locator('.room[data-id="main-room"]').click();page.locator('#btn-rmenu').click()
+    page.get_by_role('button',name='메모방·백업에서 합치기 · 원본 보존').click();page.locator('#manual-merge-source').select_option('backup:backup-only')
+    page.wait_for_function("document.querySelector('#manual-merge-preview')?.textContent.includes('새로 가져올 메모 0개')")
+    assert page.locator('#manual-merge-commit').is_disabled();page.locator('#manual-merge-cancel').click()
+
 def main():
     env=os.environ.copy()
     for key in ('MEMOTALK_TEST_ROOT','MEMOTALK_TEST_PORT'):env.pop(key,None)
@@ -31,7 +78,7 @@ def main():
       with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,args=['--disable-dev-shm-usage'])
         for device,width,height in [('desktop',1120,800),('mobile',412,860)]:
-          context=browser.new_context(viewport={'width':width,'height':height})
+          context=browser.new_context(viewport={'width':width,'height':height},is_mobile=device=='mobile',has_touch=device=='mobile')
           seed='''(()=>{
             if(!localStorage.getItem('manual-merge-fixture')){
               localStorage.setItem('memotalk.v1',JSON.stringify(DATA));
@@ -51,9 +98,8 @@ def main():
           assert page.locator('#room-name').inner_text()==TARGET_NAME
           page.locator('#input').fill('전송 전 초안 유지')
           page.locator('#btn-rmenu').click()
-          page.get_by_role('button',name='다른 메모방 내용 합치기 · 원본 보존').click()
-          page.locator('#manual-merge-source').select_option('recovery-room')
-          page.locator('#manual-merge-check').click()
+          page.get_by_role('button',name='메모방·백업에서 합치기 · 원본 보존').click()
+          page.locator('#manual-merge-source').select_option('room:recovery-room')
           page.wait_for_function("document.querySelector('#manual-merge-preview').textContent.includes('새로 가져올 메모 1개')")
           page.locator('#manual-merge-commit').click()
           page.get_by_role('button',name='원본 보존하고 통합').click()
@@ -70,9 +116,8 @@ def main():
           assert added['images'][0]['data']==SAMPLE_PNG
           assert page.locator('#input').input_value()=='전송 전 초안 유지'
           page.locator('#btn-rmenu').click()
-          page.get_by_role('button',name='다른 메모방 내용 합치기 · 원본 보존').click()
-          page.locator('#manual-merge-source').select_option('recovery-room')
-          page.locator('#manual-merge-check').click()
+          page.get_by_role('button',name='메모방·백업에서 합치기 · 원본 보존').click()
+          page.locator('#manual-merge-source').select_option('room:recovery-room')
           page.wait_for_function("document.querySelector('#manual-merge-preview').textContent.includes('새로 가져올 메모 0개')")
           assert page.locator('#manual-merge-commit').is_disabled()
           page.locator('#manual-merge-cancel').click()
@@ -92,6 +137,7 @@ def main():
           page.locator('.room[data-id="main-room"]').wait_for()
           page.locator('.room[data-id="main-room"]').click()
           assert page.locator('#msgs .row[data-id]').first.get_attribute('data-id')==added['id']
+          backup_and_folder_checks(page,device)
           assert not errors,errors
           context.close()
         browser.close()

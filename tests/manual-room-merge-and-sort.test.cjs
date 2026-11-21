@@ -102,3 +102,20 @@ test('rejects merging a room with itself or malformed source records',async()=>{
   await assert.rejects(()=>fn(roomA,roomA,[],[]),/merge_same_room/);
   await assert.rejects(()=>fn(roomA,roomB,[],[{text:'missing ID'}]),/merge_invalid_messages/);
 });
+
+test('backup rooms are read without restoring state and preserve nested folder labels and full messages',()=>{
+  const start=html.indexOf('function backupMergeRooms('),end=html.indexOf('async function openBackupRoomMerge(',start);
+  const parse=vm.runInNewContext(html.slice(start,end)+';backupMergeRooms',{structuredClone});
+  const data={rooms:{folder:{id:'folder',kind:'folder',name:'백업 분류'},main:{id:'main',name:'기존 방',folderId:'folder'},archive:{id:'archive',kind:'archive'}},msgs:{main:[memo('old',50,'백업만 남은 내용',{images:[{data:'data:image/png;base64,AA=='}],comments:[{id:'c',ts:51,text:'옛 댓글'}]})]}};
+  const record={id:'backup1',raw:JSON.stringify(data)},before=JSON.stringify(record),rooms=parse(record);
+  assert.equal(rooms.length,1);assert.equal(rooms[0].label,'백업 분류 / 기존 방');assert.equal(rooms[0].sourceId,'backup-room:main');assert.equal(rooms[0].messages[0].comments[0].text,'옛 댓글');
+  rooms[0].messages[0].text='test copy';assert.equal(JSON.stringify(record),before);
+  assert.throws(()=>parse({raw:'{"rooms":[],"msgs":{}}'}),/backup_invalid/);
+});
+
+test('an older imported ID and missing image dimensions cannot make a second copy',async()=>{
+  const fn=plan(),source=[memo('original',50,'사진',{images:[{data:'data:image/png;base64,AA=='}]})];
+  const earlier={...structuredClone(source[0]),id:'older-planner-id',images:[{...source[0].images[0],w:10,h:10}],manualMergeSource:{roomId:roomB,messageId:'original'}};
+  assert.equal((await fn(roomA,roomB,[earlier],source)).adds.length,0);
+  const sameRoomBackup=await fn(roomA,'backup-room:'+roomA,[],source);assert.equal(sameRoomBackup.adds.length,1);
+});

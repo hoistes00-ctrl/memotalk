@@ -28,7 +28,7 @@ test('mobile chrome is scoped to active, ready Modutalk view and restored on exi
   class FakeItemView{constructor(leaf){this.app=leaf.app;}}
   const exports={};
   const stub={Plugin:FakePlugin,ItemView:FakeItemView,PluginSettingTab:class{},Setting:class{},Modal:class{},Notice:class{},Platform:{isMobileApp:true},normalizePath:x=>x};
-  const sandbox={require:()=>stub,module:{exports},document,window:{},crypto:{}};
+  const sandbox={require:()=>stub,module:{exports},document,window:{},crypto:{},setTimeout:()=>0,clearTimeout(){}};
   vm.runInNewContext(src,sandbox,{filename:'main.js'});
   const plugin=new sandbox.module.exports();
   await plugin.onload();
