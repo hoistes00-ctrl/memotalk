@@ -382,9 +382,13 @@ body{position:relative;margin:0}
 .tuning-row>div{display:flex;gap:10px;align-items:center}.tuning-row input{width:100%;accent-color:var(--ink)}.tuning-row input[type=range]{min-width:0;flex:1}.tuning-row input[type=number]{width:7em;min-width:0}
 .tuning-row button{width:36px;height:36px;font-size:22px;flex-shrink:0;background:var(--surface-2);border-radius:8px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.create-tools{display:flex;gap:8px;padding-block:0 10px;flex-shrink:0}
-.create-tools button{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);font-size:14px;font-weight:600}
-.create-tools svg{width:20px;height:20px}.create-tools #btn-new{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+/* One toolbar, with a visual boundary between creating and managing items. */
+.list-tools{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:6px 12px;flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--surface)}
+.list-tools button{min-width:0;min-height:44px;padding:4px 2px;border-radius:9px;background:var(--surface-2);font-size:12px;font-weight:500;line-height:1.35;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;word-break:keep-all;overflow-wrap:anywhere}
+.list-tools button svg{width:16px;height:16px}.list-tools #btn-new{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.list-tools #btn-select-items{border-left:1px solid var(--line);border-top-left-radius:0;border-bottom-left-radius:0}
+.list-tools #move-root{border:1px dashed var(--ink-3)}
+.move-help{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .room-entry{display:flex;align-items:stretch;min-width:0}.room-entry .room{flex:1;min-width:0;padding-right:8px}
 .room-label-edit,.label-shortcut{flex-shrink:0;min-width:44px;min-height:44px;border-radius:10px;padding:6px;color:var(--ink-2);font-size:12px;font-weight:600}
 .room-label-edit{align-self:center;margin-right:6px;background:var(--surface-2)}
@@ -424,9 +428,12 @@ body{position:relative;margin:0}
       <button class="ibtn" id="btn-room-sort" type="button" aria-label="메모방 날짜순 정렬" title="메모방 날짜순 정렬">⇅</button>
       <button class="ibtn" id="btn-more" aria-label="더보기"></button>
     </header>
-    <div class="create-tools gut" role="group" aria-label="새 항목 만들기">
-      <button id="btn-new-folder" type="button"><span data-icon="folder"></span>새 폴더</button>
-      <button id="btn-new" type="button"><span data-icon="plusChat"></span>새 메모방</button>
+    <div class="list-tools" role="toolbar" aria-label="만들기 · 선택 · 조작 설정 · 최상위 이동">
+      <button id="btn-new" type="button" title="새 메모방 만들기"><span data-icon="plusChat" aria-hidden="true"></span><span>새 메모방</span></button>
+      <button id="btn-new-folder" type="button" title="새 폴더 만들기"><span data-icon="folder" aria-hidden="true"></span><span>새 폴더</span></button>
+      <button id="btn-select-items" type="button" title="메모방·폴더 여러 개 선택">선택</button>
+      <button id="btn-drag-settings" type="button" aria-haspopup="dialog">조작 설정</button>
+      <button id="move-root" type="button" data-drop-root="true" title="선택한 항목을 최상위로 이동">↰ 최상위</button>
     </div>
     <div class="sbar gut" id="gsearch" hidden>
       <label class="sfield"><span data-icon="search"></span><input id="gsearch-input" type="search" placeholder="검색 · #라벨로 범위 좁히기" autocomplete="off"></label>
@@ -440,7 +447,6 @@ body{position:relative;margin:0}
       <button id="room-select-delete" type="button" disabled aria-label="선택한 메모방 삭제">삭제</button>
       <button id="room-select-cancel" type="button">취소</button>
     </div>
-    <div class="move-tools"><button id="btn-select-items">선택</button><button id="btn-drag-settings">조작 설정</button><button id="move-root" data-drop-root="true">↰ 최상위</button></div>
     <p class="move-help" id="move-help">마우스로 끌기 · 휴대폰에서는 ⠿ 아이콘을 잡아 끌기</p>
     <div class="move-result" id="move-result" hidden><span id="move-result-text" role="status"></span><button id="move-undo">되돌리기</button></div>
     <div class="file-sync-bar" id="file-sync-bar" data-sync="off" role="group" aria-label="실제 Markdown 파일 저장">
@@ -1548,7 +1554,7 @@ function applyTuning() {
 applyTuning();
 function openDragSettings() {
   clearDrag();
-  const sheet = openScrim(`<h2>조작 설정</h2><p>값은 즉시 적용되고 이 기기에 저장됩니다. 제목은 기본적으로 줄 수 제한 없이 모두 표시합니다.</p><div class="tuning-row"><label for="room-title-mode">목록 제목 표시 <output id="value-title-mode"></output></label><div><select id="room-title-mode"><option value="full">전체 표시 (추천)</option><option value="two">${ROOM_TITLE_TWO_LINES}줄 요약</option><option value="one">${ROOM_TITLE_ONE_LINE}줄 요약</option></select><button id="reset-title-mode" aria-label="제목 전체 표시로 복귀">↺</button></div></div>${Object.entries(tuningSchema).map(([name, definition]) => {
+  const sheet = openScrim(`<h2>조작 설정</h2><p>값은 즉시 적용되고 이 기기에 저장됩니다. 제목은 기본적으로 줄 수 제한 없이 모두 표시합니다. 마우스로 끌거나 휴대폰에서 ⠿ 아이콘을 잡아 항목을 옮깁니다. 여러 항목은 선택을 누른 뒤 최상위나 폴더로 이동할 수 있습니다.</p><div class="tuning-row"><label for="room-title-mode">목록 제목 표시 <output id="value-title-mode"></output></label><div><select id="room-title-mode"><option value="full">전체 표시 (추천)</option><option value="two">${ROOM_TITLE_TWO_LINES}줄 요약</option><option value="one">${ROOM_TITLE_ONE_LINE}줄 요약</option></select><button id="reset-title-mode" aria-label="제목 전체 표시로 복귀">↺</button></div></div>${Object.entries(tuningSchema).map(([name, definition]) => {
     const bounded=Number.isFinite(definition[3]),max=bounded?` max="${definition[3]}"`:'';
     return `<div class="tuning-row"><label for="${bounded?'tune-':'number-'}${name}">${definition[0]} <output id="value-${name}">${tuning[name]} ${definition[5]}</output></label><div>${bounded?`<input id="tune-${name}" data-tune="${name}" type="range" min="${definition[2]}"${max} step="${definition[4]}" value="${tuning[name]}">`:''}${!bounded||['toast','toastFade'].includes(name)?`<input id="number-${name}" data-tune="${name}" type="number" min="${definition[2]}"${max} step="${definition[4]}" value="${tuning[name]}" aria-label="${definition[0]} 숫자 입력">`:''}<button data-reset="${name}" aria-label="${definition[0]} 기본값 복귀">↺</button></div></div>`;
   }).join('')}<div class="btns"><button class="ghost" id="reset-controls">전체 기본값</button><button class="ok" id="close-controls">닫기</button></div>`);

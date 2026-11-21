@@ -19,6 +19,24 @@ DATA={'seeded':True,'rooms':{
 
 def backup_and_folder_checks(page,device):
     if page.locator('#btn-back').is_visible():page.locator('#btn-back').click()
+    # Narrow screens keep every action visible in one compact, unclipped row.
+    original_size=page.viewport_size
+    for width in [320,360,430]:
+        page.set_viewport_size({'width':width,'height':880})
+        if page.locator('#btn-back').is_visible():page.locator('#btn-back').click()
+        toolbar=page.locator('.list-tools').bounding_box()
+        assert toolbar['height']<=70
+        for selector in ['#btn-new','#btn-new-folder','#btn-select-items','#btn-drag-settings','#move-root']:
+            button=page.locator(selector).bounding_box()
+            assert button and button['height']>=44 and button['x']>=0 and button['x']+button['width']<=width
+        assert page.locator('#list').bounding_box()['y']<230
+    page.set_viewport_size(original_size)
+    page.locator('#btn-select-items').click()
+    assert page.locator('#room-select-bar').is_visible()
+    page.locator('#room-select-cancel').click()
+    page.locator('#btn-drag-settings').click()
+    assert page.locator('#close-controls').is_visible()
+    page.locator('#close-controls').click()
     page.locator('#btn-new-folder').click();page.locator('#prompt-field').fill('검증 새 폴더')
     page.locator('#prompt-field').press('Enter')
     page.wait_for_function("Object.values(JSON.parse(localStorage.getItem('memotalk.v1')).rooms).some(r=>r.kind==='folder'&&r.name==='검증 새 폴더')")
