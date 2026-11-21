@@ -285,6 +285,7 @@ body{position:relative;margin:0}
 .sheet .field:focus{border-color:var(--ink-3)}
 .btns{display:flex;gap:8px;justify-content:flex-end;padding:0 4px 2px}
 .btns button{padding:10px 18px;border-radius:12px;font-weight:600}
+.btns a.ok{display:inline-flex;align-items:center;justify-content:center;padding:10px 18px;border-radius:12px;font-weight:600;text-decoration:none}
 .btns .ghost{color:var(--ink-2)}
 .btns .ghost:hover{background:var(--surface-2)}
 .btns .ok{background:var(--accent);color:var(--accent-ink)}
@@ -3459,8 +3460,77 @@ async function showConflicts(memoId){
 $('#btn-new').addEventListener('click', createRoom);
 $('#btn-new-folder').addEventListener('click', () => newFolder());
 $('#btn-trash-shortcut').addEventListener('click',showVaultTrash);
+
+/* On-screen update choice for installed standalone Android/Windows apps.
+   The OS installer is launched only by an explicit user click; no silent upgrades. */
+const APP_RELEASE_API='https://api.github.com/repos/hoistes00-ctrl/memotalk/releases?per_page=25';
+const installedAppVersion=(document.title.match(/(\d+\.\d+\.\d+)/)||[])[1]||'0.0.0';
+function releaseVersion(value){
+  if(typeof value!=='string'||!/^\d+\.\d+\.\d+$/.test(value))return null;
+  return value.split('.').map(Number);
+}
+function isNewerRelease(a,b){
+  const left=releaseVersion(a),right=releaseVersion(b);
+  return !!left&&!!right&&(left[0]>right[0]||(left[0]===right[0]&&(left[1]>right[1]||
+    (left[1]===right[1]&&left[2]>right[2]))));
+}
+function selectAppRelease(releases,current,platform){
+  if(!Array.isArray(releases))return null;
+  const matches=[];
+  for(const release of releases){
+    if(release?.draft||release?.prerelease)continue;
+    const m=/^modutalk-v(\d+\.\d+\.\d+)$/.exec(release.tag_name||'');
+    if(!m||!isNewerRelease(m[1],current))continue;
+    const name=platform==='android'?'Modutalk-Android-'+m[1]+'.apk':'Modutalk-Setup-'+m[1]+'-x64.exe';
+    const asset=(release.assets||[]).find(a=>a.name===name&&Number(a.size)>0&&
+      typeof a.browser_download_url==='string'&&a.browser_download_url.startsWith(
+      'https://github.com/hoistes00-ctrl/memotalk/releases/download/'+release.tag_name+'/'));
+    if(asset)matches.push({version:m[1],tag:release.tag_name,url:asset.browser_download_url});
+  }
+  matches.sort((a,b)=>isNewerRelease(a.version,b.version)?-1:isNewerRelease(b.version,a.version)?1:0);
+  return matches[0]||null;
+}
+async function checkAppUpdates({manual=false}={}){
+  if(window.MemoTalkHostCapabilities){
+    if(manual)toast('Obsidian 연동 화면 상단의 업데이트 버튼을 눌러 주세요.');
+    return;
+  }
+  let last=0;try{last=Number(localStorage.getItem('memotalk.update.checkedAt')||0)||0;}catch(_){}
+  if(!manual&&Date.now()-last<24*60*60*1000)return;
+  try{
+    const ctrl=new AbortController(),timeout=setTimeout(()=>ctrl.abort(),8000);
+    let response;
+    try{response=await fetch(APP_RELEASE_API,{headers:{Accept:'application/vnd.github+json'},signal:ctrl.signal});}
+    finally{clearTimeout(timeout);}
+    if(!response.ok)throw Error('offline');
+    const releases=await response.json();
+    const platform=window.AndroidMemoTalk?'android':'windows';
+    const latest=selectAppRelease(releases,installedAppVersion,platform);
+    try{localStorage.setItem('memotalk.update.checkedAt',String(Date.now()));}catch(_){}
+    if(!latest){if(manual)toast('모두톡 '+installedAppVersion+'은 현재 최신 정식 앱 버전입니다.');return;}
+    if(!manual){
+      try{if(localStorage.getItem('memotalk.update.dismissed')===latest.tag)return;}catch(_){}
+      if(sheetOpen||viewerEl)return;
+    }
+    const sheet=openScrim('<h2>모두톡 '+esc(latest.version)+' 업그레이드</h2>'+
+      '<p>현재 버전 '+esc(installedAppVersion)+' → 새 버전 '+esc(latest.version)+
+      '. 기존 메모나 동기화 그룹은 삭제하지 않습니다. 다운로드한 공식 설치 파일은 운영체제에서 사용자 확인 후 설치합니다.</p>'+
+      '<div class="btns"><button type="button" class="ghost" id="modutalk-upgrade-later">나중에</button>'+
+      '<a class="ok" id="modutalk-upgrade-download" href="'+esc(latest.url)+'" target="_blank" rel="noopener">업그레이드</a></div>');
+    sheet.querySelector('#modutalk-upgrade-later').addEventListener('click',()=>{
+      try{localStorage.setItem('memotalk.update.dismissed',latest.tag);}catch(_){}closeSheet();
+    });
+    const installerLink=sheet.querySelector('#modutalk-upgrade-download');
+    // Android WebView opens main-frame links through ACTION_VIEW; popups are disabled.
+    // Electron routes target=_blank links to the system browser.
+    if(platform==='android')installerLink.target='_self';
+    installerLink.addEventListener('click',()=>setTimeout(closeSheet,0));
+  }catch(_){if(manual)toast('업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.');}
+}
+
 $('#btn-more').addEventListener('click', () => {
   menu('모두톡', [
+    {icon:'save',label:'버전 확인 · 업그레이드',run:()=>checkAppUpdates({manual:true})},
     {icon:'folder',label:'새 폴더 만들기',run:()=>newFolder()},
     {icon:'folder',label:'실제 Markdown 저장 폴더',run:showFileFolderMenu},
     {icon:'save',label:'Markdown 묶음 내보내기',run:exportTransfer},
@@ -3932,6 +4002,7 @@ async function boot(){
 autosize(); updateSend();
 setInterval(()=>{if(backend?.mode==='local')scheduleVaultAutoBackup();},30*60*1000);
 boot();
+setTimeout(()=>{void checkAppUpdates({manual:false});},2500);
 })();
 </script>
 

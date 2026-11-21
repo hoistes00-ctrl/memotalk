@@ -1,0 +1,76 @@
+name: Build Modutalk 17.5.3 in-app updater preview
+
+on:
+  push:
+    branches: [feature/in-app-update-choice-17_5_3]
+    paths:
+      - 'obsidian/modutalk-sync-view/**'
+      - 'shared/index.html'
+      - 'android/app/src/main/assets/index.html'
+      - 'scripts/build-obsidian-view.py'
+      - 'tests/in-app-updates.test.cjs'
+      - '.github/workflows/modutalk-in-app-update-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: modutalk-in-app-updater-preview
+  cancel-in-progress: true
+
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    if: github.repository == 'hoistes00-ctrl/memotalk'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify updater, rollback, existing source and sync invariants
+        run: |
+          python scripts/sync-app-info.py --check
+          python scripts/build-obsidian-view.py --check
+          node --check obsidian/modutalk-sync-view/main.js
+          node tests/check-ui.mjs
+          node --test tests/in-app-updates.test.cjs tests/manual-room-merge-and-sort.test.cjs tests/obsidian-host.test.cjs tests/modutalk-ui-stability.test.cjs tests/peer-room-merge.test.cjs
+      - name: Prepare virtual Chromium
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Virtual PC/mobile app UI and two-device sync regression
+        run: |
+          python tests/manual-room-merge-browser.py
+          python tests/peer-browser-smoke.py
+          python tests/location-title-browser.py
+      - name: Package and publish opt-in in-app update files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import json;print(json.load(open('obsidian/modutalk-sync-view/manifest.json'))['version'])")"
+          [ "$version" = 17.5.3 ]
+          mkdir -p dist/plugin-assets
+          archive="Modutalk-Obsidian-${version}-updater.${GITHUB_RUN_NUMBER}.zip"
+          python scripts/build-obsidian-view.py --check --plugin-only --zip "dist/$archive"
+          for name in main.js app.html styles.css manifest.json; do
+            cp "obsidian/modutalk-sync-view/$name" "dist/plugin-assets/$name"
+          done
+          (
+            cd dist
+            sha256sum "$archive" plugin-assets/main.js plugin-assets/app.html \
+              plugin-assets/styles.css plugin-assets/manifest.json > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
+          tag="modutalk-obsidian-v${version}-browser.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" "dist/$archive" "dist/SHA256SUMS.txt" \
+            "dist/plugin-assets/main.js" "dist/plugin-assets/app.html" \
+            "dist/plugin-assets/styles.css" "dist/plugin-assets/manifest.json" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "모두톡 ${version} 앱 내 업그레이드 테스트 ${GITHUB_RUN_NUMBER}" \
+            --notes "모두톡을 열면 새 버전을 안내하고 '업그레이드'/'나중에'를 선택할 수 있게 한 플러그인 시험판입니다. Obsidian 연동 모드는 GitHub 해시로 검증된 네 개 파일을 선택적으로 교체하고 플러그인을 다시 켤 때 적용합니다. Windows/Android 독립 앱은 공식 설치 파일 링크만 제공하며 자동으로 설치하지 않습니다. 사용자의 메모·공유 폴더·operations 기록은 건드리지 않습니다. Obsidian 버전 17.5.2에서 처음 업그레이드할 때는 이번 테스트 ZIP을 한 번 수동 설치해야 하며, 이후 업그레이드부터 앱 안에서 선택할 수 있습니다."

@@ -1,5 +1,5 @@
 'use strict';
-const {Plugin,ItemView,PluginSettingTab,Setting,Modal,Notice,Platform,normalizePath}=require('obsidian');
+const {Plugin,ItemView,PluginSettingTab,Setting,Modal,Notice,Platform,normalizePath,requestUrl}=require('obsidian');
 // Backend byte limit, matching the native bridge. Higher permits larger binary files.
 const MAX_BYTES=64*1024*1024;
 // Backend path limit, matching native traversal. Higher permits deeper descendants.
@@ -173,6 +173,63 @@ class FolderModal extends Modal {
     }));
   }
 }
+
+/** Update discovery is read-only. Trusted payloads must come from a repo release
+ * with individually GitHub-hashed plugin assets, never from a URL in memo data. */
+const UPDATE_API='https://api.github.com/repos/hoistes00-ctrl/memotalk/releases?per_page=25';
+const PLUGIN_FILES=['app.html','styles.css','manifest.json','main.js'];
+const PLUGIN_MAX_BYTES={'app.html':4*1024*1024,'styles.css':256*1024,'manifest.json':16*1024,'main.js':1024*1024};
+function versionParts(value){
+  if(typeof value!=='string'||!/^\d+\.\d+\.\d+$/.test(value))return null;
+  return value.split('.').map(Number);
+}
+function compareVersions(a,b){
+  const left=versionParts(a),right=versionParts(b);
+  if(!left||!right)throw Error('invalid_version');
+  for(let i=0;i<3;i++)if(left[i]!==right[i])return Math.sign(left[i]-right[i]);
+  return 0;
+}
+function selectPluginUpdate(releases,installed){
+  if(!Array.isArray(releases))return null;
+  const options=[];
+  for(const release of releases){
+    if(release?.draft||!release?.prerelease)continue;
+    const match=/^modutalk-obsidian-v(\d+\.\d+\.\d+)-(?:browser|virtual|test)\.(\d+)$/.exec(release.tag_name||'');
+    if(!match||!versionParts(installed)||compareVersions(match[1],installed)<=0)continue;
+    if(typeof release.html_url!=='string'||!release.html_url.startsWith('https://github.com/hoistes00-ctrl/memotalk/releases/tag/'))continue;
+    const files=Object.fromEntries((release.assets||[]).filter(a=>PLUGIN_FILES.includes(a.name)).map(a=>[a.name,a]));
+    if(!PLUGIN_FILES.every(name=>files[name]&&Number.isInteger(files[name].size)&&files[name].size>0&&
+      files[name].size<=PLUGIN_MAX_BYTES[name]&&/^sha256:[a-f0-9]{64}$/.test(files[name].digest||'')&&
+      typeof files[name].browser_download_url==='string'&&files[name].browser_download_url.startsWith(
+       'https://github.com/hoistes00-ctrl/memotalk/releases/download/'+release.tag_name+'/')))continue;
+    options.push({...release,version:match[1],build:Number(match[2]),files});
+  }
+  options.sort((a,b)=>compareVersions(b.version,a.version)||b.build-a.build);
+  return options[0]||null;
+}
+async function sha256Hex(bytes){
+  const data=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+  return Array.from(data,b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function fetchVerifiedPluginFiles(release,fetcher=requestUrl){
+  const files={};
+  for(const name of PLUGIN_FILES){
+    const asset=release.files[name];
+    const response=await fetcher({url:asset.browser_download_url,method:'GET',throw:false});
+    if(response.status!==200)throw Error('update_http_'+response.status);
+    const bytes=new Uint8Array(response.arrayBuffer);
+    if(bytes.byteLength!==asset.size||bytes.byteLength>PLUGIN_MAX_BYTES[name]||
+      'sha256:'+await sha256Hex(bytes)!==asset.digest)throw Error('update_checksum_'+name);
+    files[name]=bytes;
+  }
+  const manifest=JSON.parse(new TextDecoder().decode(files['manifest.json']));
+  if(manifest.id!=='modutalk-sync-view'||manifest.version!==release.version||manifest.isDesktopOnly!==false)
+    throw Error('update_manifest_mismatch');
+  if(!new TextDecoder().decode(files['app.html']).includes('<!--MODUTALK_BOOTSTRAP-->'))
+    throw Error('update_missing_bootstrap');
+  return files;
+}
+
 class ModutalkView extends ItemView {
   constructor(leaf,plugin){super(leaf);this.plugin=plugin;this.ready=false;this.showObsidianChrome=false;}
   getViewType(){return VIEW_TYPE;}
@@ -194,6 +251,8 @@ class ModutalkView extends ItemView {
         toggle.setAttribute('aria-label',this.showObsidianChrome?'모두톡 전체 화면으로 돌아가기':'Obsidian 메뉴 표시');
         this.plugin.refreshImmersive();
       });
+      const updateButton=controls.createEl('button',{cls:'modutalk-sync-menu-toggle',text:'업데이트',attr:{type:'button','aria-label':'모두톡 업데이트 확인'}});
+      updateButton.addEventListener('click',()=>this.plugin.checkForUpdates({manual:true}));
       this.updateStatus();
       const frame=this.contentEl.createEl('iframe',{cls:'modutalk-sync-frame',attr:{title:'모두톡',sandbox:'allow-scripts allow-same-origin allow-forms allow-downloads allow-modals',allow:'clipboard-read; clipboard-write'}});
       this.frame=frame;frame.__modutalkHost=this.host;
@@ -203,6 +262,7 @@ class ModutalkView extends ItemView {
       if(!html.includes('<!--MODUTALK_BOOTSTRAP-->'))throw Error('화면 파일이 올바르지 않습니다.');
       frame.srcdoc=html.replace('<!--MODUTALK_BOOTSTRAP-->','<script>'+script.replace(/<\/script/gi,'<\\/script')+'</script>');
       this.ready=true;this.plugin.refreshImmersive();
+      void this.plugin.checkForUpdates({manual:false});
     }catch(e){this.ready=false;this.plugin.refreshImmersive();this.host?.dispose();this.contentEl.empty();this.contentEl.createEl('p',{text:'모두톡 연결을 확인하세요: '+e.message});}
   }
   updateStatus(){
@@ -227,6 +287,74 @@ class ModutalkSettings extends PluginSettingTab {
   }
 }
 class ModutalkPlugin extends Plugin {
+  async checkForUpdates({manual=false}={}){
+    if(this.updating)return;
+    // Regular opens do not cause repeated prompts or block the memo editor.
+    if(!manual&&Date.now()-(this.data.lastUpdateCheckAt||0)<6*60*60*1000)return;
+    try{
+      const reply=await requestUrl({url:UPDATE_API,headers:{Accept:'application/vnd.github+json'},throw:false});
+      if(reply.status!==200)throw Error('업데이트 서버에 연결할 수 없습니다.');
+      const release=selectPluginUpdate(reply.json,this.manifest.version);
+      this.data.lastUpdateCheckAt=Date.now();await this.saveData(this.data);
+      if(!release){if(manual)new Notice('현재 최신 모두톡 연동 플러그인을 사용 중입니다.');return;}
+      if(!manual&&this.data.dismissedUpdateTag===release.tag_name)return;
+      this.showUpdateChoice(release);
+    }catch(e){if(manual)new Notice('업데이트 확인 실패: '+String(e.message||e));}
+  }
+  showUpdateChoice(release){
+    const modal=new Modal(this.app);
+    modal.onOpen=()=>{
+      modal.contentEl.createEl('h3',{text:'모두톡 새 버전 '+release.version});
+      modal.contentEl.createEl('p',{text:'현재 '+this.manifest.version+' → '+release.version+'. 기존 메모·공유 폴더는 변경하지 않습니다. 업그레이드는 선택 사항입니다.'});
+      new Setting(modal.contentEl)
+        .addButton(b=>b.setButtonText('나중에').onClick(async()=>{
+          this.data.dismissedUpdateTag=release.tag_name;await this.saveData(this.data);modal.close();
+        }))
+        .addButton(b=>b.setButtonText('업그레이드').setCta().onClick(()=>{
+          modal.close();void this.installPluginUpdate(release);
+        }));
+    };
+    modal.open();
+  }
+  async installPluginUpdate(release){
+    if(this.updating)return;
+    this.updating=true;
+    new Notice('업데이트 파일을 검증하고 있습니다.');
+    try{
+      if(compareVersions(release.version,this.manifest.version)<=0)throw Error('이미 설치된 버전입니다.');
+      // All bytes and checksums are verified BEFORE modifying a plugin file.
+      const files=await fetchVerifiedPluginFiles(release);
+      const adapter=this.app.vault.adapter,dir=this.manifest.dir;
+      if(!dir||!dir.endsWith('/'+this.manifest.id))throw Error('plugin_dir_invalid');
+      const original={};
+      for(const name of PLUGIN_FILES)original[name]=new Uint8Array(await adapter.readBinary(dir+'/'+name));
+      // Persistent copies recover even from an unexpected app exit while writing.
+      const backup=dir+'/.modutalk-backup-'+this.manifest.version;
+      if(!(await adapter.exists(backup)))await adapter.mkdir(backup);
+      for(const name of PLUGIN_FILES)await adapter.writeBinary(backup+'/'+name,original[name].buffer);
+      let wrote=false;
+      try{
+        for(const name of PLUGIN_FILES){
+          wrote=true;
+          await adapter.writeBinary(dir+'/'+name,files[name].buffer);
+          const verify=new Uint8Array(await adapter.readBinary(dir+'/'+name));
+          if('sha256:'+await sha256Hex(verify)!==release.files[name].digest)
+            throw Error('update_write_verify_'+name);
+        }
+      }catch(e){
+        if(wrote)for(const name of PLUGIN_FILES){
+          try{await adapter.writeBinary(dir+'/'+name,original[name].buffer);}catch(_){}
+        }
+        throw e;
+      }
+      this.data.appliedUpdateTag=release.tag_name;
+      this.data.dismissedUpdateTag='';
+      await this.saveData(this.data);
+      new Notice('모두톡 '+release.version+' 설치 완료. Obsidian에서 모두톡 플러그인을 껐다 켜면 적용됩니다.',12000);
+    }catch(e){
+      new Notice('업그레이드에 실패했습니다. 현재 플러그인 파일을 유지하거나 복원했습니다: '+String(e.message||e),12000);
+    }finally{this.updating=false;}
+  }
   refreshImmersive(){
     if(!Platform.isMobileApp)return;
     const active=this.app.workspace.activeLeaf?.view;
@@ -234,7 +362,7 @@ class ModutalkPlugin extends Plugin {
     document.body.classList.toggle('modutalk-immersive',immersive);
   }
   async onload(){
-    this.data=Object.assign({folder:'',groupId:null},await this.loadData()||{});
+    this.data=Object.assign({folder:'',groupId:null,lastUpdateCheckAt:0,dismissedUpdateTag:''},await this.loadData()||{});
     if(!Platform.isMobileApp)return;
     this.registerView(VIEW_TYPE,leaf=>new ModutalkView(leaf,this));
     this.registerEvent(this.app.workspace.on('active-leaf-change',()=>this.refreshImmersive()));
@@ -255,5 +383,7 @@ class ModutalkPlugin extends Plugin {
     for(const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))leaf.view.host?.dispose();
   }
 }
+ModutalkPlugin.selectPluginUpdate=selectPluginUpdate;
+ModutalkPlugin.fetchVerifiedPluginFiles=fetchVerifiedPluginFiles;
 ModutalkPlugin.VaultHost=VaultHost;ModutalkPlugin.frameBootstrap=frameBootstrap;ModutalkPlugin.safeFolder=safeFolder;
 module.exports=ModutalkPlugin;

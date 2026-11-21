@@ -13,7 +13,9 @@ for name in ['platform-bridge.js','mirror-engine.js','peer-sync-engine.js','peer
 needle='<script>\n(() => {'
 if needle not in source:raise RuntimeError('Shared app entry point changed; inspect before bundling')
 source=source.replace(needle,'<script>\nif(window.__modutalkHostReady){\n(() => {',1)
-source=source.replace('boot();\n})();\n</script>','boot();\n})();\n}\n</script>',1)
+tail='})();'+chr(10)+'</script>'
+assert source.count(tail)==1,'Shared UI end marker changed; inspect before bundling'
+source=source.replace(tail,'})();'+chr(10)+'}'+chr(10)+'</script>',1)
 assert '<script src=' not in source and '<!--MODUTALK_BOOTSTRAP-->' in source
 target=ROOT/'obsidian/modutalk-sync-view/app.html'
 if '--check' in sys.argv:
