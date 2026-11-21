@@ -414,6 +414,7 @@ body{position:relative;margin:0}
       <button class="ibtn" id="btn-layout" aria-label="격자형 보기로 전환" title="목록/격자 보기"></button>
       <button class="ibtn" id="btn-gsearch" aria-label="전체 검색"></button>
       <button class="ibtn" id="btn-trash-shortcut" aria-label="휴지통 열기" title="휴지통 · 삭제 항목 복원"></button>
+      <button class="ibtn" id="btn-room-sort" type="button" aria-label="메모방 날짜순 정렬" title="메모방 날짜순 정렬">⇅</button>
       <button class="ibtn" id="btn-more" aria-label="더보기"></button>
     </header>
     <div class="create-tools gut" role="group" aria-label="새 항목 만들기">
@@ -453,6 +454,7 @@ body{position:relative;margin:0}
         <button class="label-shortcut" id="btn-room-labels" type="button" aria-label="현재 메모방 라벨 편집" aria-haspopup="dialog">라벨</button>
         <button class="ibtn" id="btn-msg-layout" aria-label="메모 격자 보기" title="메모 보기 전환"></button>
         <button class="ibtn" id="btn-rsearch" aria-label="대화 검색"></button>
+        <button class="ibtn" id="btn-msg-sort" type="button" aria-label="메모 날짜순 정렬" title="메모 날짜순 정렬">⇅</button>
         <button class="ibtn desktop-feature" id="btn-popout" aria-label="현재 메모방 새 창으로 열기" title="새 창으로 열기" type="button">▣</button>
         <button class="ibtn" id="btn-rmenu" aria-label="채팅방 메뉴"></button>
       </header>
@@ -2539,7 +2541,49 @@ function editRoom(id, {labelsOnly=false}={}){
   setTimeout(() => { if (sheet.isConnected) (r ? tagF : nameF).focus(); }, tuning.focus);
 }
 const roomLabelButton = room => `<button class="room-label-edit" type="button" data-room-labels="${esc(room.id)}" aria-label="${esc(room.name)} 라벨 편집" aria-haspopup="dialog">라벨<small>${roomTags(room).length ? roomTags(room).length + '개' : '+ 추가'}</small></button>`;
-const sortedRooms = () => S.rooms.slice().sort((a, b) => (!!b.pinned - !!a.pinned) || ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
+/* Sorting is a local presentation preference, never a sync operation. */
+const ROOM_SORT_KEY='memotalk.v17.roomSortMode';
+const MEMO_SORT_KEY='memotalk.v17.memoSortMode';
+const ROOM_SORT_MODES=['manual','created-old','created-new','activity','activity-old'];
+const MEMO_SORT_MODES=['old','new','edited-new','edited-old'];
+let roomSortMode='manual',memoSortMode='old';
+try{
+  const value=localStorage.getItem(ROOM_SORT_KEY);if(ROOM_SORT_MODES.includes(value))roomSortMode=value;
+  const memo=localStorage.getItem(MEMO_SORT_KEY);if(MEMO_SORT_MODES.includes(memo))memoSortMode=memo;
+}catch(_){}
+const validChrono = value => Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
+function chronoCompare(a,b,key,reverse=false){
+  const left=validChrono(a[key]),right=validChrono(b[key]);
+  if(left===null&&right!==null)return 1;
+  if(right===null&&left!==null)return -1;
+  if(left!==right&&left!==null&&right!==null)return reverse?right-left:left-right;
+  return String(a.id||'').localeCompare(String(b.id||''));
+}
+const sortedRooms = () => S.rooms.slice().sort((a,b)=>{
+  const pinned=Number(!!b.pinned)-Number(!!a.pinned);
+  if(pinned)return pinned;
+  if(roomSortMode==='created-old')return chronoCompare(a,b,'createdAt');
+  if(roomSortMode==='created-new')return chronoCompare(a,b,'createdAt',true);
+  if(roomSortMode==='activity-old')return chronoCompare({...a,activityAt:a.updatedAt||a.createdAt},{...b,activityAt:b.updatedAt||b.createdAt},'activityAt');
+  return chronoCompare({...a,activityAt:a.updatedAt||a.createdAt},{...b,activityAt:b.updatedAt||b.createdAt},'activityAt',true);
+});
+const sortedMemoView = messages => messages.slice().sort((a,b)=>{
+  if(memoSortMode==='edited-new')return chronoCompare({...a,sortAt:a.edited||a.ts},{...b,sortAt:b.edited||b.ts},'sortAt',true);
+  if(memoSortMode==='edited-old')return chronoCompare({...a,sortAt:a.edited||a.ts},{...b,sortAt:b.edited||b.ts},'sortAt');
+  return chronoCompare(a,b,'ts',memoSortMode==='new');
+});
+function roomSortMenu(){
+  const choices=[['manual','기존 순서 · 직접 배치'],['created-old','방 생성일 · 오래된 순'],['created-new','방 생성일 · 최신 순'],['activity','최근 활동 · 최신 순'],['activity-old','최근 활동 · 오래된 순']];
+  menu('메모방 날짜순 정렬',choices.map(([mode,label])=>({icon:'folder',label:(roomSortMode===mode?'✓ ':'')+label,run:()=>{
+    roomSortMode=mode;try{localStorage.setItem(ROOM_SORT_KEY,mode);}catch(_){}renderList();
+  }})),'화면에서 보이는 순서만 바뀝니다. 공유 이력은 변경되지 않아요.');
+}
+function memoSortMenu(){
+  const choices=[['old','작성일 · 오래된 순'],['new','작성일 · 최신 순'],['edited-old','최종 수정일 · 오래된 순'],['edited-new','최종 수정일 · 최신 순']];
+  menu('메모 날짜순 정렬',choices.map(([mode,label])=>({icon:'folder',label:(memoSortMode===mode?'✓ ':'')+label,run:()=>{
+    memoSortMode=mode;try{localStorage.setItem(MEMO_SORT_KEY,mode);}catch(_){}renderMsgs();
+  }})),'작성일이나 수정일이 없는 메모는 마지막에 표시합니다. 실제 기록은 재배치하지 않아요.');
+}
 /* Desktop room order is a per-device presentation preference; memo contents and timestamps stay untouched. */
 const ROOM_ORDER_KEY = 'memotalk.v17.roomOrder';
 let savedRoomOrder = {};
@@ -2549,6 +2593,7 @@ try {
 } catch (_) {}
 const roomOrderGroup = folderId => 'rooms:' + (folderId || '__root__');
 function roomsInSavedOrder(rooms, folderId) {
+  if(roomSortMode!=='manual')return rooms;
   const saved = savedRoomOrder[roomOrderGroup(folderId)];
   if (!Array.isArray(saved) || !saved.length) return rooms;
   const ranks = new Map(saved.map((id, i) => [id, i]));
@@ -3216,11 +3261,118 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) cance
 
 function createRoom(){ editRoom(null); }
 
+/* Non-destructive, user-selected merge: copy missing memo records into one
+   chosen destination. The source room, revisions and attachments remain intact.
+   Deterministic IDs and provenance make retries idempotent across devices. */
+async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessages){
+  if(!targetId||!sourceId||targetId===sourceId)throw Error('merge_same_room');
+  const valid=list=>Array.isArray(list)&&list.every(m=>m&&typeof m.id==='string'&&m.id.length);
+  if(!valid(targetMessages)||!valid(sourceMessages))throw Error('merge_invalid_messages');
+  const canonical=value=>{
+    if(value===null||typeof value!=='object')return JSON.stringify(value);
+    if(Array.isArray(value))return '['+value.map(x=>canonical(x)??'null').join(',')+']';
+    return '{'+Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+  };
+  const signature=m=>{
+    const payload={...m};delete payload.id;delete payload.manualMergeSource;
+    delete payload.peerMergeOrigins;
+    return canonical(payload);
+  };
+  const targetById=new Map(targetMessages.map(m=>[m.id,m]));
+  const externalCounts=new Map();
+  for(const m of targetMessages){
+    if(m.manualMergeSource?.roomId===sourceId)continue;
+    const sig=signature(m);externalCounts.set(sig,(externalCounts.get(sig)||0)+1);
+  }
+  const groups=new Map();
+  for(const m of sourceMessages){
+    const sig=signature(m),items=groups.get(sig)||[];items.push(m);groups.set(sig,items);
+  }
+  const adds=[];
+  let skippedDuplicate=0,skippedImported=0;
+  for(const [sig,list] of [...groups].sort(([a],[b])=>a.localeCompare(b))){
+    list.sort((a,b)=>a.id.localeCompare(b.id));
+    const alreadyHere=externalCounts.get(sig)||0;
+    for(let i=0;i<list.length;i++){
+      const source=list[i];
+      // A content-versioned digest retains later edited copies without overwriting earlier versions.
+      const bytes=new TextEncoder().encode(canonical([targetId,sourceId,source.id,sig]));
+      const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+      const destId='manual_'+Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('').slice(0,48);
+      const existing=targetById.get(destId);
+      if(existing){
+        const origin=existing.manualMergeSource;
+        if(origin?.roomId!==sourceId||origin?.messageId!==source.id)throw Error('merge_id_collision');
+        skippedImported++;continue;
+      }
+      if(i<alreadyHere){skippedDuplicate++;continue;}
+      const copy=structuredClone(source);
+      copy.id=destId;
+      copy.manualMergeSource={roomId:sourceId,messageId:source.id};
+      adds.push(copy);
+      targetById.set(destId,copy);
+    }
+  }
+  return {adds,sourceCount:sourceMessages.length,targetCount:targetMessages.length,skippedDuplicate,skippedImported};
+}
+async function openManualRoomMerge(targetId){
+  const target=S.rooms.find(room=>room.id===targetId);
+  if(!target||backend.mode!=='local')return toast('수동 통합은 이 기기의 로컬 저장 모드에서만 지원해요.');
+  const candidates=S.rooms.filter(room=>room.id!==targetId&&!room.kind&&!room.peerConflict);
+  if(!candidates.length)return toast('합칠 다른 메모방이 없어요.');
+  const sheet=openScrim('<h2>다른 방의 메모 가져와 합치기</h2><p>목표 방: '+esc(target.name)+'<br>원본 방과 이력은 삭제되지 않습니다. 동일한 기록은 비교하고 새 기록만 복사합니다.</p>'+
+    '<label for="manual-merge-source">복구 방 또는 원본 방 선택</label>'+
+    '<select class="field" id="manual-merge-source">'+candidates.map(room=>'<option value="'+esc(room.id)+'">'+esc(room.name)+'</option>').join('')+'</select>'+
+    '<p id="manual-merge-preview">내용을 비교하면 복사할 메모 수가 표시됩니다.</p>'+
+    '<div class="btns"><button type="button" class="ghost" id="manual-merge-cancel">취소</button><button type="button" class="ok" id="manual-merge-check">내용 비교</button><button type="button" class="ok" id="manual-merge-commit" disabled>통합하기</button></div>');
+  const selected=sheet.querySelector('#manual-merge-source');
+  const info=sheet.querySelector('#manual-merge-preview');
+  const commit=sheet.querySelector('#manual-merge-commit');
+  let prepared=null;
+  selected.addEventListener('change',()=>{prepared=null;commit.disabled=true;info.textContent='내용 비교를 다시 실행해 주세요.';});
+  sheet.querySelector('#manual-merge-cancel').addEventListener('click',closeSheet);
+  sheet.querySelector('#manual-merge-check').addEventListener('click',async()=>{
+    const srcId=selected.value;prepared=null;commit.disabled=true;info.textContent='메모를 확인하는 중…';
+    try{
+      const [targetMessages,sourceMessages]=await Promise.all([backend.loadAllMsgs(targetId),backend.loadAllMsgs(srcId)]);
+      const plan=await planManualRoomMerge(targetId,srcId,targetMessages,sourceMessages);
+      if(!sheet.isConnected||selected.value!==srcId)return;
+      prepared={srcId,sourceMessages,targetMessages,plan};
+      info.textContent='원본 '+plan.sourceCount+'개 / 대상 '+plan.targetCount+'개 · 새로 가져올 메모 '+plan.adds.length+'개 · 완전 일치 '+plan.skippedDuplicate+'개 · 이전에 가져옴 '+plan.skippedImported+'개. 댓글·사진·작성일을 함께 보존합니다.';
+      commit.disabled=!plan.adds.length;
+    }catch(e){if(sheet.isConnected)info.textContent='비교하지 못했습니다. 오류: '+String(e.message||e);}
+  });
+  commit.addEventListener('click',async()=>{
+    if(!prepared||commit.disabled)return;
+    const {srcId,sourceMessages,targetMessages,plan}=prepared;
+    const sourceName=S.rooms.find(r=>r.id===srcId)?.name||'선택한 방';
+    closeSheet();
+    if(!await ask({title:'메모방 내용을 합칠까요?',body:sourceName+'의 메모 '+plan.adds.length+'개를 '+target.name+' 방에 추가합니다. 원본 방은 남고, 기존 메모를 덮어쓰지 않습니다.',ok:'원본 보존하고 통합'}))return;
+    try{
+      if(!S.rooms.some(r=>r.id===srcId)||!S.rooms.some(r=>r.id===targetId))throw Error('merge_room_removed');
+      const [currentSource,currentTarget]=await Promise.all([backend.loadAllMsgs(srcId),backend.loadAllMsgs(targetId)]);
+      if(JSON.stringify(sourceMessages)!==JSON.stringify(currentSource)||JSON.stringify(targetMessages)!==JSON.stringify(currentTarget))
+        throw Error('merge_preview_stale');
+      const fresh=await planManualRoomMerge(targetId,srcId,currentTarget,currentSource);
+      if(fresh.adds.length!==plan.adds.length)throw Error('merge_preview_stale');
+      // Mandatory local backup before the atomic insertion; never delete source.
+      await createVaultSnapshot('수동 메모방 통합 전: '+target.name,true);
+      await backend.applyTransfer(fresh.adds.map(msg=>({type:'msg',rid:targetId,value:msg,expected:null})));
+      S.gcache=null;
+      toast('메모 '+fresh.adds.length+'개를 안전하게 합쳤어요. 원본 방은 그대로 남아 있어요.');
+      if(S.cur===targetId)renderMsgs();
+    }catch(e){
+      toast('통합을 중단했습니다. 원본은 그대로 보존됩니다. '+String(e.message||e),true);
+    }
+  });
+}
+
 function roomMenu(id){
   const r = S.rooms.find(x => x.id === id); if (!r) return;
   menu(r.name, [
     {icon:'pin', label: r.pinned ? '상단 고정 해제' : '상단에 고정', run: () => backend.updateRoom(id, {pinned:!r.pinned}).catch(() => toast('바꾸지 못했어요.'))},
     {icon:'rename', label:'이름·라벨 편집', run: () => editRoom(id)},
+    {icon:'folder',label:'다른 메모방 내용 합치기 · 원본 보존',run:()=>openManualRoomMerge(id)},
     {icon:'folder',label:'폴더로 이동',run:()=>moveRoom(id)},
     {icon:'save',label:'이 방 Markdown 묶음으로 저장',run:()=>exportTransfer([id])},
     {icon:'pdf', label:'PDF로 내보내기', run: () => exportPdf(id)},
@@ -3347,6 +3499,8 @@ function renderRoomHeader(){
   $('#room-sub').textContent = (S.msgsLoaded ? `메모 ${S.msgs.length}개` : '불러오는 중…') + (roomTags(r).length ? ' · ' + tagStr(r) : '');
 }
 $('#btn-rmenu').addEventListener('click', () => S.cur && roomMenu(S.cur));
+$('#btn-msg-sort').addEventListener('click',memoSortMenu);
+$('#btn-room-sort').addEventListener('click',roomSortMenu);
 $('#btn-room-labels').addEventListener('click', () => S.cur && editRoom(S.cur, {labelsOnly:true}));
 let memoLayoutMode = 'chat';
 try { memoLayoutMode = localStorage.getItem('memotalk.memoLayout') === 'grid' ? 'grid' : 'chat'; } catch (_) {}
@@ -3477,28 +3631,30 @@ function renderMsgs(){
   if (!S.cur) return;
   renderRoomHeader();
   const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < tuning.messageEdge;
-  const stick = memoLayoutMode === 'chat' && (S.forceBottom || (!memoUserReading && nearBottom));
+  const stick = memoLayoutMode === 'chat' && memoSortMode==='old' && (S.forceBottom || (!memoUserReading && nearBottom));
   if (!S.msgsLoaded){ msgsEl.innerHTML = ''; return; }
   if (!S.msgs.length){ msgsEl.innerHTML = `<p class="room-empty">아직 메모가 없어요. 아래에 적어서 나에게 보내 보세요.</p>`; return; }
   const q = S.rs.open ? S.rs.q : '';
   const curHit = S.rs.hits[S.rs.idx];
   let html = '', prevDay = null;
-  S.msgs.forEach((m, i) => {
-    const prev = S.msgs[i-1], next = S.msgs[i+1];
-    const dk = dayKey(m.ts);
-    if (dk !== prevDay){ html += `<div class="day">${esc(fDay.format(new Date(m.ts)))}</div>`; prevDay = dk; }
-    const first = !prev || dayKey(prev.ts) !== dk || minuteKey(prev.ts) !== minuteKey(m.ts);
-    const showTime = !next || dayKey(next.ts) !== dk || minuteKey(next.ts) !== minuteKey(m.ts) || (m.edited && !next.edited);
+  const displayed=sortedMemoView(S.msgs);
+  displayed.forEach((m, i) => {
+    const prev = displayed[i-1], next = displayed[i+1];
+    const dk = validChrono(m.ts)!==null?dayKey(m.ts):'unknown';
+    if (dk !== prevDay){ html += `<div class="day">${esc(dk==='unknown'?'작성 날짜 없음':fDay.format(new Date(m.ts)))}</div>`; prevDay = dk; }
+    const first = !prev || (validChrono(prev.ts)!==null?dayKey(prev.ts):'unknown') !== dk || minuteKey(prev.ts) !== minuteKey(m.ts);
+    const showTime = !next || (validChrono(next.ts)!==null?dayKey(next.ts):'unknown') !== dk || minuteKey(next.ts) !== minuteKey(m.ts) || (m.edited && !next.edited);
     const imgs = m.images || [];
     const pics = imgs.length ? `<div class="pics n${Math.min(imgs.length, 4)}">${imgs.map((im, k) => `<img loading="lazy" alt="첨부한 사진" data-k="${k}" src="${esc(imgSrc(im))}"${im.w ? ` width="${im.w}" height="${im.h}"` : ''}>`).join('')}</div>` : '';
     const bubble = m.text ? `<div class="bubble${imgs.length ? '' : ' lead'}">${renderText(m.text, q)}</div>` : '';
     const conflictButton = m.conflicts?.length ? `<button class="conflict-link" type="button" data-conflicts="${esc(m.id)}" aria-label="이 메모의 이전 내용과 차이 ${m.conflicts.length}건 보기">이전 내용과 차이 ${m.conflicts.length}건 보기</button>` : '';
-    const meta = (memoLayoutMode === 'grid' || showTime) ? `<div class="meta">${m.edited ? '<span>수정됨</span>' : ''}<span>${esc(fTime.format(new Date(m.ts)))}</span></div>` : (m.edited ? `<div class="meta"><span>수정됨</span></div>` : '');
+    const meta = (memoLayoutMode === 'grid' || showTime) ? `<div class="meta">${m.edited ? '<span>수정됨</span>' : ''}<span>${esc(validChrono(m.ts)!==null?fTime.format(new Date(m.ts)):'날짜 없음')}</span></div>` : (m.edited ? `<div class="meta"><span>수정됨</span></div>` : '');
     html += `<div class="row${first ? ' first gap' : ''}${curHit === m.id ? ' cur' : ''}" data-id="${esc(m.id)}"${memoLayoutMode === 'grid' ? ' tabindex="0" role="button" aria-label="메모 펼쳐 보기"' : ''}>${meta}<div class="content">${pics}${bubble}${conflictButton}${memoCommentsHtml(m)}</div></div>`;
   });
   msgsEl.innerHTML = html;
   if (S.rs.open && curHit) scrollToMsg(curHit, false);
   else if (stick) msgsEl.scrollTop = msgsEl.scrollHeight;
+  else if(memoSortMode!=='old'&&S.forceBottom)msgsEl.scrollTop=0;
   S.forceBottom = false;
 }
 msgsEl.addEventListener('toggle',e=>{
