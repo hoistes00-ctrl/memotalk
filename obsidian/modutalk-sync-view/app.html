@@ -3261,11 +3261,118 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) cance
 
 function createRoom(){ editRoom(null); }
 
+/* Non-destructive, user-selected merge: copy missing memo records into one
+   chosen destination. The source room, revisions and attachments remain intact.
+   Deterministic IDs and provenance make retries idempotent across devices. */
+async function planManualRoomMerge(targetId,sourceId,targetMessages,sourceMessages){
+  if(!targetId||!sourceId||targetId===sourceId)throw Error('merge_same_room');
+  const valid=list=>Array.isArray(list)&&list.every(m=>m&&typeof m.id==='string'&&m.id.length);
+  if(!valid(targetMessages)||!valid(sourceMessages))throw Error('merge_invalid_messages');
+  const canonical=value=>{
+    if(value===null||typeof value!=='object')return JSON.stringify(value);
+    if(Array.isArray(value))return '['+value.map(x=>canonical(x)??'null').join(',')+']';
+    return '{'+Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+  };
+  const signature=m=>{
+    const payload={...m};delete payload.id;delete payload.manualMergeSource;
+    delete payload.peerMergeOrigins;
+    return canonical(payload);
+  };
+  const targetById=new Map(targetMessages.map(m=>[m.id,m]));
+  const externalCounts=new Map();
+  for(const m of targetMessages){
+    if(m.manualMergeSource?.roomId===sourceId)continue;
+    const sig=signature(m);externalCounts.set(sig,(externalCounts.get(sig)||0)+1);
+  }
+  const groups=new Map();
+  for(const m of sourceMessages){
+    const sig=signature(m),items=groups.get(sig)||[];items.push(m);groups.set(sig,items);
+  }
+  const adds=[];
+  let skippedDuplicate=0,skippedImported=0;
+  for(const [sig,list] of [...groups].sort(([a],[b])=>a.localeCompare(b))){
+    list.sort((a,b)=>a.id.localeCompare(b.id));
+    const alreadyHere=externalCounts.get(sig)||0;
+    for(let i=0;i<list.length;i++){
+      const source=list[i];
+      // A stable 256-bit digest cannot depend on the current time or device.
+      const bytes=new TextEncoder().encode(canonical([targetId,sourceId,source.id]));
+      const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+      const destId='manual_'+Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('').slice(0,48);
+      const existing=targetById.get(destId);
+      if(existing){
+        const origin=existing.manualMergeSource;
+        if(origin?.roomId!==sourceId||origin?.messageId!==source.id)throw Error('merge_id_collision');
+        skippedImported++;continue;
+      }
+      if(i<alreadyHere){skippedDuplicate++;continue;}
+      const copy=structuredClone(source);
+      copy.id=destId;
+      copy.manualMergeSource={roomId:sourceId,messageId:source.id};
+      adds.push(copy);
+      targetById.set(destId,copy);
+    }
+  }
+  return {adds,sourceCount:sourceMessages.length,targetCount:targetMessages.length,skippedDuplicate,skippedImported};
+}
+async function openManualRoomMerge(targetId){
+  const target=S.rooms.find(room=>room.id===targetId);
+  if(!target||backend.mode!=='local')return toast('수동 통합은 이 기기의 로컬 저장 모드에서만 지원해요.');
+  const candidates=S.rooms.filter(room=>room.id!==targetId&&!room.kind&&!room.peerConflict);
+  if(!candidates.length)return toast('합칠 다른 메모방이 없어요.');
+  const sheet=openScrim('<h2>다른 방의 메모 가져와 합치기</h2><p>목표 방: '+esc(target.name)+'<br>원본 방과 이력은 삭제되지 않습니다. 동일한 기록은 비교하고 새 기록만 복사합니다.</p>'+
+    '<label for="manual-merge-source">복구 방 또는 원본 방 선택</label>'+
+    '<select class="field" id="manual-merge-source">'+candidates.map(room=>'<option value="'+esc(room.id)+'">'+esc(room.name)+'</option>').join('')+'</select>'+
+    '<p id="manual-merge-preview">내용을 비교하면 복사할 메모 수가 표시됩니다.</p>'+
+    '<div class="btns"><button type="button" class="ghost" id="manual-merge-cancel">취소</button><button type="button" class="ok" id="manual-merge-check">내용 비교</button><button type="button" class="ok" id="manual-merge-commit" disabled>통합하기</button></div>');
+  const selected=sheet.querySelector('#manual-merge-source');
+  const info=sheet.querySelector('#manual-merge-preview');
+  const commit=sheet.querySelector('#manual-merge-commit');
+  let prepared=null;
+  selected.addEventListener('change',()=>{prepared=null;commit.disabled=true;info.textContent='내용 비교를 다시 실행해 주세요.';});
+  sheet.querySelector('#manual-merge-cancel').addEventListener('click',closeSheet);
+  sheet.querySelector('#manual-merge-check').addEventListener('click',async()=>{
+    const srcId=selected.value;prepared=null;commit.disabled=true;info.textContent='메모를 확인하는 중…';
+    try{
+      const [targetMessages,sourceMessages]=await Promise.all([backend.loadAllMsgs(targetId),backend.loadAllMsgs(srcId)]);
+      const plan=await planManualRoomMerge(targetId,srcId,targetMessages,sourceMessages);
+      if(!sheet.isConnected||selected.value!==srcId)return;
+      prepared={srcId,sourceMessages,targetMessages,plan};
+      info.textContent='원본 '+plan.sourceCount+'개 / 대상 '+plan.targetCount+'개 · 새로 가져올 메모 '+plan.adds.length+'개 · 완전 일치 '+plan.skippedDuplicate+'개 · 이전에 가져옴 '+plan.skippedImported+'개. 댓글·사진·작성일을 함께 보존합니다.';
+      commit.disabled=!plan.adds.length;
+    }catch(e){if(sheet.isConnected)info.textContent='비교하지 못했습니다. 오류: '+String(e.message||e);}
+  });
+  commit.addEventListener('click',async()=>{
+    if(!prepared||commit.disabled)return;
+    const {srcId,sourceMessages,targetMessages,plan}=prepared;
+    const sourceName=S.rooms.find(r=>r.id===srcId)?.name||'선택한 방';
+    closeSheet();
+    if(!await ask({title:'메모방 내용을 합칠까요?',body:sourceName+'의 메모 '+plan.adds.length+'개를 '+target.name+' 방에 추가합니다. 원본 방은 남고, 기존 메모를 덮어쓰지 않습니다.',ok:'원본 보존하고 통합'}))return;
+    try{
+      if(!S.rooms.some(r=>r.id===srcId)||!S.rooms.some(r=>r.id===targetId))throw Error('merge_room_removed');
+      const [currentSource,currentTarget]=await Promise.all([backend.loadAllMsgs(srcId),backend.loadAllMsgs(targetId)]);
+      if(JSON.stringify(sourceMessages)!==JSON.stringify(currentSource)||JSON.stringify(targetMessages)!==JSON.stringify(currentTarget))
+        throw Error('merge_preview_stale');
+      const fresh=await planManualRoomMerge(targetId,srcId,currentTarget,currentSource);
+      if(fresh.adds.length!==plan.adds.length)throw Error('merge_preview_stale');
+      // Mandatory local backup before the atomic insertion; never delete source.
+      await createVaultSnapshot('수동 메모방 통합 전: '+target.name,true);
+      await backend.applyTransfer(fresh.adds.map(msg=>({type:'msg',rid:targetId,value:msg,expected:null})));
+      S.gcache=null;
+      toast('메모 '+fresh.adds.length+'개를 안전하게 합쳤어요. 원본 방은 그대로 남아 있어요.');
+      if(S.cur===targetId)renderMsgs();
+    }catch(e){
+      toast('통합을 중단했습니다. 원본은 그대로 보존됩니다. '+String(e.message||e),true);
+    }
+  });
+}
+
 function roomMenu(id){
   const r = S.rooms.find(x => x.id === id); if (!r) return;
   menu(r.name, [
     {icon:'pin', label: r.pinned ? '상단 고정 해제' : '상단에 고정', run: () => backend.updateRoom(id, {pinned:!r.pinned}).catch(() => toast('바꾸지 못했어요.'))},
     {icon:'rename', label:'이름·라벨 편집', run: () => editRoom(id)},
+    {icon:'folder',label:'다른 메모방 내용 합치기 · 원본 보존',run:()=>openManualRoomMerge(id)},
     {icon:'folder',label:'폴더로 이동',run:()=>moveRoom(id)},
     {icon:'save',label:'이 방 Markdown 묶음으로 저장',run:()=>exportTransfer([id])},
     {icon:'pdf', label:'PDF로 내보내기', run: () => exportPdf(id)},
