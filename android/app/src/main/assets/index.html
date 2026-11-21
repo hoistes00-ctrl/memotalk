@@ -416,6 +416,7 @@ body{position:relative;margin:0}
       <button class="ibtn" id="btn-layout" aria-label="격자형 보기로 전환" title="목록/격자 보기"></button>
       <button class="ibtn" id="btn-gsearch" aria-label="전체 검색"></button>
       <button class="ibtn" id="btn-trash-shortcut" aria-label="휴지통 열기" title="휴지통 · 삭제 항목 복원"></button>
+      <button class="ibtn" id="btn-room-sort" type="button" aria-label="메모방 날짜순 정렬" title="메모방 날짜순 정렬">⇅</button>
       <button class="ibtn" id="btn-more" aria-label="더보기"></button>
     </header>
     <div class="create-tools gut" role="group" aria-label="새 항목 만들기">
@@ -455,6 +456,7 @@ body{position:relative;margin:0}
         <button class="label-shortcut" id="btn-room-labels" type="button" aria-label="현재 메모방 라벨 편집" aria-haspopup="dialog">라벨</button>
         <button class="ibtn" id="btn-msg-layout" aria-label="메모 격자 보기" title="메모 보기 전환"></button>
         <button class="ibtn" id="btn-rsearch" aria-label="대화 검색"></button>
+        <button class="ibtn" id="btn-msg-sort" type="button" aria-label="메모 날짜순 정렬" title="메모 날짜순 정렬">⇅</button>
         <button class="ibtn desktop-feature" id="btn-popout" aria-label="현재 메모방 새 창으로 열기" title="새 창으로 열기" type="button">▣</button>
         <button class="ibtn" id="btn-rmenu" aria-label="채팅방 메뉴"></button>
       </header>
@@ -1341,7 +1343,49 @@ function editRoom(id, {labelsOnly=false}={}){
   setTimeout(() => { if (sheet.isConnected) (r ? tagF : nameF).focus(); }, tuning.focus);
 }
 const roomLabelButton = room => `<button class="room-label-edit" type="button" data-room-labels="${esc(room.id)}" aria-label="${esc(room.name)} 라벨 편집" aria-haspopup="dialog">라벨<small>${roomTags(room).length ? roomTags(room).length + '개' : '+ 추가'}</small></button>`;
-const sortedRooms = () => S.rooms.slice().sort((a, b) => (!!b.pinned - !!a.pinned) || ((b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
+/* Sorting is a local presentation preference, never a sync operation. */
+const ROOM_SORT_KEY='memotalk.v17.roomSortMode';
+const MEMO_SORT_KEY='memotalk.v17.memoSortMode';
+const ROOM_SORT_MODES=['manual','created-old','created-new','activity','activity-old'];
+const MEMO_SORT_MODES=['old','new','edited-new','edited-old'];
+let roomSortMode='manual',memoSortMode='old';
+try{
+  const value=localStorage.getItem(ROOM_SORT_KEY);if(ROOM_SORT_MODES.includes(value))roomSortMode=value;
+  const memo=localStorage.getItem(MEMO_SORT_KEY);if(MEMO_SORT_MODES.includes(memo))memoSortMode=memo;
+}catch(_){}
+const validChrono = value => Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
+function chronoCompare(a,b,key,reverse=false){
+  const left=validChrono(a[key]),right=validChrono(b[key]);
+  if(left===null&&right!==null)return 1;
+  if(right===null&&left!==null)return -1;
+  if(left!==right&&left!==null&&right!==null)return reverse?right-left:left-right;
+  return String(a.id||'').localeCompare(String(b.id||''));
+}
+const sortedRooms = () => S.rooms.slice().sort((a,b)=>{
+  const pinned=Number(!!b.pinned)-Number(!!a.pinned);
+  if(pinned)return pinned;
+  if(roomSortMode==='created-old')return chronoCompare(a,b,'createdAt');
+  if(roomSortMode==='created-new')return chronoCompare(a,b,'createdAt',true);
+  if(roomSortMode==='activity-old')return chronoCompare({...a,activityAt:a.updatedAt||a.createdAt},{...b,activityAt:b.updatedAt||b.createdAt},'activityAt');
+  return chronoCompare({...a,activityAt:a.updatedAt||a.createdAt},{...b,activityAt:b.updatedAt||b.createdAt},'activityAt',true);
+});
+const sortedMemoView = messages => messages.slice().sort((a,b)=>{
+  if(memoSortMode==='edited-new')return chronoCompare({...a,sortAt:a.edited||a.ts},{...b,sortAt:b.edited||b.ts},'sortAt',true);
+  if(memoSortMode==='edited-old')return chronoCompare({...a,sortAt:a.edited||a.ts},{...b,sortAt:b.edited||b.ts},'sortAt');
+  return chronoCompare(a,b,'ts',memoSortMode==='new');
+});
+function roomSortMenu(){
+  const choices=[['manual','기존 순서 · 직접 배치'],['created-old','방 생성일 · 오래된 순'],['created-new','방 생성일 · 최신 순'],['activity','최근 활동 · 최신 순'],['activity-old','최근 활동 · 오래된 순']];
+  menu('메모방 날짜순 정렬',choices.map(([mode,label])=>({icon:'folder',label:(roomSortMode===mode?'✓ ':'')+label,run:()=>{
+    roomSortMode=mode;try{localStorage.setItem(ROOM_SORT_KEY,mode);}catch(_){}renderList();
+  }})),'화면에서 보이는 순서만 바뀝니다. 공유 이력은 변경되지 않아요.');
+}
+function memoSortMenu(){
+  const choices=[['old','작성일 · 오래된 순'],['new','작성일 · 최신 순'],['edited-old','최종 수정일 · 오래된 순'],['edited-new','최종 수정일 · 최신 순']];
+  menu('메모 날짜순 정렬',choices.map(([mode,label])=>({icon:'folder',label:(memoSortMode===mode?'✓ ':'')+label,run:()=>{
+    memoSortMode=mode;try{localStorage.setItem(MEMO_SORT_KEY,mode);}catch(_){}renderMsgs();
+  }})),'작성일이나 수정일이 없는 메모는 마지막에 표시합니다. 실제 기록은 재배치하지 않아요.');
+}
 /* Desktop room order is a per-device presentation preference; memo contents and timestamps stay untouched. */
 const ROOM_ORDER_KEY = 'memotalk.v17.roomOrder';
 let savedRoomOrder = {};
@@ -1351,6 +1395,7 @@ try {
 } catch (_) {}
 const roomOrderGroup = folderId => 'rooms:' + (folderId || '__root__');
 function roomsInSavedOrder(rooms, folderId) {
+  if(roomSortMode!=='manual')return rooms;
   const saved = savedRoomOrder[roomOrderGroup(folderId)];
   if (!Array.isArray(saved) || !saved.length) return rooms;
   const ranks = new Map(saved.map((id, i) => [id, i]));
@@ -2149,6 +2194,8 @@ function renderRoomHeader(){
   $('#room-sub').textContent = (S.msgsLoaded ? `메모 ${S.msgs.length}개` : '불러오는 중…') + (roomTags(r).length ? ' · ' + tagStr(r) : '');
 }
 $('#btn-rmenu').addEventListener('click', () => S.cur && roomMenu(S.cur));
+$('#btn-msg-sort').addEventListener('click',memoSortMenu);
+$('#btn-room-sort').addEventListener('click',roomSortMenu);
 $('#btn-room-labels').addEventListener('click', () => S.cur && editRoom(S.cur, {labelsOnly:true}));
 let memoLayoutMode = 'chat';
 try { memoLayoutMode = localStorage.getItem('memotalk.memoLayout') === 'grid' ? 'grid' : 'chat'; } catch (_) {}
@@ -2279,28 +2326,30 @@ function renderMsgs(){
   if (!S.cur) return;
   renderRoomHeader();
   const nearBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < tuning.messageEdge;
-  const stick = memoLayoutMode === 'chat' && (S.forceBottom || (!memoUserReading && nearBottom));
+  const stick = memoLayoutMode === 'chat' && memoSortMode==='old' && (S.forceBottom || (!memoUserReading && nearBottom));
   if (!S.msgsLoaded){ msgsEl.innerHTML = ''; return; }
   if (!S.msgs.length){ msgsEl.innerHTML = `<p class="room-empty">아직 메모가 없어요. 아래에 적어서 나에게 보내 보세요.</p>`; return; }
   const q = S.rs.open ? S.rs.q : '';
   const curHit = S.rs.hits[S.rs.idx];
   let html = '', prevDay = null;
-  S.msgs.forEach((m, i) => {
-    const prev = S.msgs[i-1], next = S.msgs[i+1];
-    const dk = dayKey(m.ts);
-    if (dk !== prevDay){ html += `<div class="day">${esc(fDay.format(new Date(m.ts)))}</div>`; prevDay = dk; }
-    const first = !prev || dayKey(prev.ts) !== dk || minuteKey(prev.ts) !== minuteKey(m.ts);
-    const showTime = !next || dayKey(next.ts) !== dk || minuteKey(next.ts) !== minuteKey(m.ts) || (m.edited && !next.edited);
+  const displayed=sortedMemoView(S.msgs);
+  displayed.forEach((m, i) => {
+    const prev = displayed[i-1], next = displayed[i+1];
+    const dk = validChrono(m.ts)!==null?dayKey(m.ts):'unknown';
+    if (dk !== prevDay){ html += `<div class="day">${esc(dk==='unknown'?'작성 날짜 없음':fDay.format(new Date(m.ts)))}</div>`; prevDay = dk; }
+    const first = !prev || (validChrono(prev.ts)!==null?dayKey(prev.ts):'unknown') !== dk || minuteKey(prev.ts) !== minuteKey(m.ts);
+    const showTime = !next || (validChrono(next.ts)!==null?dayKey(next.ts):'unknown') !== dk || minuteKey(next.ts) !== minuteKey(m.ts) || (m.edited && !next.edited);
     const imgs = m.images || [];
     const pics = imgs.length ? `<div class="pics n${Math.min(imgs.length, 4)}">${imgs.map((im, k) => `<img loading="lazy" alt="첨부한 사진" data-k="${k}" src="${esc(imgSrc(im))}"${im.w ? ` width="${im.w}" height="${im.h}"` : ''}>`).join('')}</div>` : '';
     const bubble = m.text ? `<div class="bubble${imgs.length ? '' : ' lead'}">${renderText(m.text, q)}</div>` : '';
     const conflictButton = m.conflicts?.length ? `<button class="conflict-link" type="button" data-conflicts="${esc(m.id)}" aria-label="이 메모의 이전 내용과 차이 ${m.conflicts.length}건 보기">이전 내용과 차이 ${m.conflicts.length}건 보기</button>` : '';
-    const meta = (memoLayoutMode === 'grid' || showTime) ? `<div class="meta">${m.edited ? '<span>수정됨</span>' : ''}<span>${esc(fTime.format(new Date(m.ts)))}</span></div>` : (m.edited ? `<div class="meta"><span>수정됨</span></div>` : '');
+    const meta = (memoLayoutMode === 'grid' || showTime) ? `<div class="meta">${m.edited ? '<span>수정됨</span>' : ''}<span>${esc(validChrono(m.ts)!==null?fTime.format(new Date(m.ts)):'날짜 없음')}</span></div>` : (m.edited ? `<div class="meta"><span>수정됨</span></div>` : '');
     html += `<div class="row${first ? ' first gap' : ''}${curHit === m.id ? ' cur' : ''}" data-id="${esc(m.id)}"${memoLayoutMode === 'grid' ? ' tabindex="0" role="button" aria-label="메모 펼쳐 보기"' : ''}>${meta}<div class="content">${pics}${bubble}${conflictButton}${memoCommentsHtml(m)}</div></div>`;
   });
   msgsEl.innerHTML = html;
   if (S.rs.open && curHit) scrollToMsg(curHit, false);
   else if (stick) msgsEl.scrollTop = msgsEl.scrollHeight;
+  else if(memoSortMode!=='old'&&S.forceBottom)msgsEl.scrollTop=0;
   S.forceBottom = false;
 }
 msgsEl.addEventListener('toggle',e=>{
