@@ -11,6 +11,7 @@ on:
       - 'scripts/build-obsidian-view.py'
       - 'scripts/sync-app-info.py'
       - 'tests/manual-room-merge-and-sort.test.cjs'
+      - 'tests/manual-room-merge-browser.py'
       - '.github/workflows/modutalk-room-feature-virtual.yml'
   workflow_dispatch:
 
@@ -46,6 +47,7 @@ jobs:
         run: |
           python tests/peer-browser-smoke.py
           python tests/location-title-browser.py
+          python tests/manual-room-merge-browser.py
 
   virtual-android:
     runs-on: ubuntu-24.04
