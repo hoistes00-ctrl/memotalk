@@ -4718,7 +4718,11 @@ async function checkAppUpdates({manual=false}={}){
     sheet.querySelector('#modutalk-upgrade-later').addEventListener('click',()=>{
       try{localStorage.setItem('memotalk.update.dismissed',latest.tag);}catch(_){}closeSheet();
     });
-    sheet.querySelector('#modutalk-upgrade-download').addEventListener('click',closeSheet);
+    const installerLink=sheet.querySelector('#modutalk-upgrade-download');
+    // Android WebView opens main-frame links through ACTION_VIEW; popups are disabled.
+    // Electron routes target=_blank links to the system browser.
+    if(platform==='android')installerLink.target='_self';
+    installerLink.addEventListener('click',()=>setTimeout(closeSheet,0));
   }catch(_){if(manual)toast('업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.');}
 }
 
