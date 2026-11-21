@@ -5,6 +5,8 @@ import json,re,sys
 ROOT=Path(__file__).resolve().parent.parent
 INFO=json.loads((ROOT/'app-info.json').read_text(encoding='utf-8'))
 CHECK='--check' in sys.argv
+WINDOWS_INFO={**INFO,'version':INFO.get('windowsVersion',INFO['version'])}
+assert re.fullmatch(r'\d+\.\d+\.\d+',WINDOWS_INFO['version'])
 assert INFO['displayName']=='모두톡'
 assert re.fullmatch(r'\d+\.\d+\.\d+',INFO['version'])
 assert INFO['androidApplicationId']=='kr.memotalk.app.sharingpreview5.syncfix'
@@ -20,7 +22,7 @@ def write(path,text):
         file.write_text(text,encoding='utf-8',newline='\n')
 
 package=json.loads((ROOT/'windows/package.json').read_text(encoding='utf-8'))
-package['version']=INFO['version']
+package['version']=WINDOWS_INFO['version']
 package['description']=INFO['displayName']+' - Windows 설치형 메모 앱'
 package['build']['productName']=INFO['displayName']
 package['build']['nsis']['shortcutName']=INFO['displayName']
@@ -30,9 +32,12 @@ package['build']['portable']['artifactName']='Modutalk-Portable-${version}-${arc
 if 'app-info.json' not in package['build']['files']:package['build']['files'].append('app-info.json')
 package['scripts'].update({'prestart':'python ../scripts/sync-app-info.py --check','predist:win':'python ../scripts/sync-app-info.py --check','predist:portable':'python ../scripts/sync-app-info.py --check'})
 write('windows/package.json',json.dumps(package,ensure_ascii=False,indent=2)+'\n')
-write('windows/app-info.json',json.dumps(INFO,ensure_ascii=False,indent=2)+'\n')
+write('windows/app-info.json',json.dumps(WINDOWS_INFO,ensure_ascii=False,indent=2)+'\n')
 downloads={'displayName':INFO['displayName'],'version':INFO['version'],'repository':'hoistes00-ctrl/memotalk','tag':'modutalk-v'+INFO['version'],'files':{'windows':'Modutalk-Setup-'+INFO['version']+'-x64.exe','android':'Modutalk-Android-'+INFO['version']+'.apk','portable':'Modutalk-Portable-'+INFO['version']+'-x64.exe'}}
 downloads['files']['obsidian']='Modutalk-Obsidian-'+INFO['version']+'.zip'
+downloads['platforms']={kind:{'version':WINDOWS_INFO['version'],'tag':'modutalk-v'+WINDOWS_INFO['version']} for kind in ['windows','portable']}
+downloads['files']['windows']='Modutalk-Setup-'+WINDOWS_INFO['version']+'-x64.exe'
+downloads['files']['portable']='Modutalk-Portable-'+WINDOWS_INFO['version']+'-x64.exe'
 write('docs/downloads.json',json.dumps(downloads,ensure_ascii=False,indent=2)+'\n')
 plugin_manifest=ROOT/'obsidian/modutalk-sync-view/manifest.json'
 if plugin_manifest.exists():
@@ -49,7 +54,7 @@ landing=(ROOT/'index.html').read_text(encoding='utf-8').replace('메모톡',INFO
 write('index.html',landing)
 lock=ROOT/'windows/package-lock.json'
 if lock.exists():
-    value=json.loads(lock.read_text(encoding='utf-8'));value['version']=INFO['version'];value['packages']['']['version']=INFO['version']
+    value=json.loads(lock.read_text(encoding='utf-8'));value['version']=WINDOWS_INFO['version'];value['packages']['']['version']=WINDOWS_INFO['version']
     write('windows/package-lock.json',json.dumps(value,ensure_ascii=False,indent=2)+'\n')
 source=(ROOT/'shared/index.html').read_text(encoding='utf-8').replace('메모톡',INFO['displayName'])
 source=re.sub(r'<title>.*?</title>','<title>'+INFO['displayName']+' '+INFO['version']+'</title>',source,count=1)

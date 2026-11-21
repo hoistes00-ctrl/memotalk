@@ -10,17 +10,23 @@
   try{
     const response=await fetch('./downloads.json');if(!response.ok)throw Error('configuration');
     const config=await response.json(),base='https://github.com/'+config.repository;
-    document.title=config.displayName+' '+config.version+' 다운로드';document.getElementById('version').textContent='Windows · Android 모두 '+config.version;
-    document.getElementById('release').href=base+'/releases/tag/'+encodeURIComponent(config.tag);
-    const result=await fetch('https://api.github.com/repos/'+config.repository+'/releases/tags/'+encodeURIComponent(config.tag),{headers:{Accept:'application/vnd.github+json'}});
-    if(!result.ok)throw Error('release');const release=await result.json();if(release.draft)throw Error('draft');
+    document.title=config.displayName+' 다운로드';document.getElementById('version').textContent='Windows '+(config.platforms?.windows?.version||config.version)+' · Android '+config.version;
+    document.getElementById('release').href=base+'/releases';
+    const releases=new Map();let failed=0;
     for(const [kind,name]of Object.entries(config.files)){
-      const asset=release.assets.find(a=>a.name===name);if(!asset)throw Error('missing');
-      const url=new URL(asset.browser_download_url);
-      if(url.origin!=='https://github.com'||url.pathname!=='/'+config.repository+'/releases/download/'+config.tag+'/'+name)throw Error('url');
-      const link=document.getElementById(kind);link.href=url.href;link.removeAttribute('aria-disabled');link.textContent+=' · '+config.version;
+      try{
+        const target=config.platforms?.[kind]||{version:config.version,tag:config.tag};
+        if(!releases.has(target.tag)){
+          const result=await fetch('https://api.github.com/repos/'+config.repository+'/releases/tags/'+encodeURIComponent(target.tag),{headers:{Accept:'application/vnd.github+json'}});
+          if(!result.ok)throw Error('release');const release=await result.json();if(release.draft)throw Error('draft');releases.set(target.tag,release);
+        }
+        const asset=releases.get(target.tag).assets.find(a=>a.name===name);if(!asset)throw Error('missing');
+        const url=new URL(asset.browser_download_url);
+        if(url.origin!=='https://github.com'||url.pathname!=='/'+config.repository+'/releases/download/'+target.tag+'/'+name)throw Error('url');
+        const link=document.getElementById(kind);link.href=url.href;link.removeAttribute('aria-disabled');link.textContent+=' · '+target.version;
+      }catch(_){failed++;}
     }
-    status.textContent=config.displayName+' '+config.version+' 공개 파일을 확인했습니다.';
+    status.textContent=failed?'일부 파일은 아직 공개 상태를 확인하지 못했습니다. 활성화된 파일은 다운로드할 수 있습니다.':config.displayName+'의 각 기기용 공개 파일을 확인했습니다.';
   }catch(_){status.textContent='설치 파일 정보를 아직 확인하지 못했습니다. 릴리스 안내에서 공개 상태를 확인하세요.';}
 })();
 </script></html>

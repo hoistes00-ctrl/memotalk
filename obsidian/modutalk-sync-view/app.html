@@ -4765,7 +4765,9 @@ $('#btn-trash-shortcut').addEventListener('click',showVaultTrash);
 /* On-screen update choice for installed standalone Android/Windows apps.
    The OS installer is launched only by an explicit user click; no silent upgrades. */
 const APP_RELEASE_API='https://api.github.com/repos/hoistes00-ctrl/memotalk/releases?per_page=25';
-const installedAppVersion=(document.title.match(/(\d+\.\d+\.\d+)/)||[])[1]||'0.0.0';
+const nativeAppVersion=window.MemoTalkNative?.version;
+const installedAppVersion=/^[0-9]+\.[0-9]+\.[0-9]+$/.test(nativeAppVersion||'')?nativeAppVersion:(document.title.match(/(\d+\.\d+\.\d+)/)||[])[1]||'0.0.0';
+if(nativeAppVersion===installedAppVersion)document.title='모두톡 '+installedAppVersion;
 function releaseVersion(value){
   if(typeof value!=='string'||!/^\d+\.\d+\.\d+$/.test(value))return null;
   return value.split('.').map(Number);

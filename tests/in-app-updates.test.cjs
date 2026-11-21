@@ -187,6 +187,17 @@ test('hosted title reports the plugin version without changing the standalone ap
   assert.ok(fs.readFileSync(path.join(root,'shared/index.html'),'utf8').includes('<title>모두톡 17.5.0</title>'));
 });
 
+test('Windows installer version wins over shared Android title and prevents repeated upgrades',()=>{
+  const source=fs.readFileSync(path.join(root,'shared','index.html'),'utf8');
+  const start=source.indexOf('const APP_RELEASE_API='),end=source.indexOf("$('#btn-more').addEventListener",start);
+  const document={title:'모두톡 17.5.0'};
+  const result=vm.runInNewContext(source.slice(start,end)+';({version:installedAppVersion,select:selectAppRelease})',{
+    document,window:{MemoTalkNative:{version:'17.5.5'}},Date,Number,AbortController,JSON
+  });
+  assert.equal(result.version,'17.5.5');assert.equal(document.title,'모두톡 17.5.5');
+  assert.equal(result.select([{tag_name:'modutalk-v17.5.5',draft:false,prerelease:false,assets:[{name:'Modutalk-Setup-17.5.5-x64.exe',size:100,browser_download_url:prefix+'modutalk-v17.5.5/Modutalk-Setup-17.5.5-x64.exe'}]}],result.version,'windows'),null);
+});
+
 test('native apps advertise the correct stable installer, not the Obsidian prerelease',()=>{
   const source=fs.readFileSync(path.join(root,'shared','index.html'),'utf8');
   const a=source.indexOf('const APP_RELEASE_API='),b=source.indexOf("$('#btn-more').addEventListener",a);

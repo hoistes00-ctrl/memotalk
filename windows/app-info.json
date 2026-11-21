@@ -1,8 +1,9 @@
 {
   "displayName": "모두톡",
-  "version": "17.5.0",
+  "version": "17.5.5",
   "androidVersionCode": 31,
   "androidApplicationId": "kr.memotalk.app.sharingpreview5.syncfix",
   "windowsAppId": "kr.memotalk.desktop",
-  "windowsProfile": "memotalk-desktop"
+  "windowsProfile": "memotalk-desktop",
+  "windowsVersion": "17.5.5"
 }

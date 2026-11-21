@@ -179,6 +179,7 @@ app.whenReady().then(async () => {
       backgroundColor:'#F5F6F8',
       webPreferences:{
         preload:path.join(__dirname,'preload.js'),
+        additionalArguments:['--modutalk-version='+appInfo.version],
         contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true
       }
     });
