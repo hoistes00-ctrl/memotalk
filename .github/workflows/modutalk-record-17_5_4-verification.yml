@@ -1,0 +1,16 @@
+name: Record 17.5.4 physical device verification
+on:
+  push:
+    branches: [release/modutalk-17.5.4-device-verification]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record verified results without modifying downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/record-17.5.4-verification.py
