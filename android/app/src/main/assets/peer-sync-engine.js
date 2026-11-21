@@ -460,6 +460,36 @@
       }finally{this.running=false;}
     }
   }
+  // A custom name on this exact derived placeholder is the user's recovery intent.
+  // Conflict archives and untouched placeholders must remain derived local views.
+  const PENDING_ROOM_NAME='받은 메모 · 메모방 복원 대기';
+  function recoverNamedPendingRoom(room){
+    const next=clone(room);
+    if(next.peerConflict===true&&!next.kind&&next.createdAt===0&&
+      typeof next.name==='string'&&next.name.trim()&&next.name!==PENDING_ROOM_NAME){
+      delete next.peerConflict;next.peerRecoveredRoom=true;
+    }
+    return next;
+  }
+  function currentReadable(records){
+    const items=Object.values(records),rooms=new Map(items.filter(r=>r.entity.kind==='room').map(r=>[r.entity.id,r.value]));
+    const groups=new Map();for(const item of items)if(item.entity.kind==='msg'){
+      const list=groups.get(item.entity.rid)||[];list.push(item);groups.set(item.entity.rid,list);
+    }
+    const compare=(a,b)=>a<b?-1:a>b?1:0;
+    const sections=['# 모두톡 현재 메모\n\n이 파일은 읽기용입니다. 앱의 현재 선택 내용을 보여 주며, 수정 이력은 operations의 JSON에 보존됩니다.\n'];
+    for(const [rid,list]of [...groups].sort(([a],[b])=>compare(a,b))){
+      const room=rooms.get(rid);if(room?.kind==='archive'||room?.peerConflict)continue;
+      sections.push('\n## '+(room?.name||PENDING_ROOM_NAME).replace(/[\r\n]+/g,' ')+'\n');
+      for(const item of list.sort((a,b)=>a.value.ts-b.value.ts||compare(a.entity.id,b.entity.id))){
+        const value=item.value;sections.push('\n<!-- memotalk_id: '+item.entity.id+' -->\n\n'+(value.text||''));
+        if(value.images?.length)sections.push('\n'+value.images.map(im=>'![](../assets/'+im.path.split('/').at(-1)+')').join('\n'));
+        if(value.comments?.length)sections.push('\n'+value.comments.map(c=>'> '+c.text.replace(/\n/g,'\n> ')).join('\n\n'));
+        sections.push('\n');
+      }
+    }
+    return {path:DIRECTORY+'/readable/current.md',data:encoder.encode(sections.join('\n'))};
+  }
   function readable(op){
     if(op.entity.kind!=='msg'||op.value===null)return null;
     const value=op.value;
@@ -470,5 +500,5 @@
     return {path:DIRECTORY+'/readable/'+op.entity.rid+'/'+op.entity.id+'/'+op.id+'.md',
       data:encoder.encode(meta+(value.text||'')+(comments?'\n\n## 댓글\n\n'+comments:'')+(images?'\n\n'+images:'')+'\n')};
   }
-  return {VERSION,GROUP_FILE,DIRECTORY,canonical,hash,assetPath,readable,entityKey,normalize,fingerprints,newState,operation,validate,project,coalesceRooms,harvest,Replica};
+  return {VERSION,GROUP_FILE,DIRECTORY,canonical,hash,assetPath,readable,currentReadable,recoverNamedPendingRoom,entityKey,normalize,fingerprints,newState,operation,validate,project,coalesceRooms,harvest,Replica};
 });

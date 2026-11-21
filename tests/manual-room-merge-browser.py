@@ -97,6 +97,7 @@ def main():
         browser=p.chromium.launch(headless=True,args=['--disable-dev-shm-usage'])
         for device,width,height in [('desktop',1120,800),('mobile',412,860)]:
           context=browser.new_context(viewport={'width':width,'height':height},is_mobile=device=='mobile',has_touch=device=='mobile')
+          context.route('https://api.github.com/repos/hoistes00-ctrl/memotalk/releases?*', lambda route:route.fulfill(status=200,content_type='application/json',body='[]'))
           seed='''(()=>{
             if(!localStorage.getItem('manual-merge-fixture')){
               localStorage.setItem('memotalk.v1',JSON.stringify(DATA));

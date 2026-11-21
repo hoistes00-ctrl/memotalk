@@ -35,6 +35,7 @@ def main():
             errors=[]
             for device,width,height in [('windows',1120,800),('android',412,860)]:
                 context=browser.new_context(viewport={'width':width,'height':height},color_scheme='light')
+                context.route('https://api.github.com/repos/hoistes00-ctrl/memotalk/releases?*', lambda route:route.fulfill(status=200,content_type='application/json',body='[]'))
                 script='''(()=>{
                     if(!localStorage.getItem('location-seeded')){
                         localStorage.setItem('memotalk.v1',JSON.stringify(DATA));

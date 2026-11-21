@@ -77,6 +77,11 @@ test('only hosted UI compresses status messages; detailed diagnostics remain',()
   assert.equal(label.textContent,'파일 폴더 미연결');
   makeStatus({})('pending','공유 기록 500 / 1053');
   assert.equal(label.textContent,'공유 기록 500 / 1053','non-hosted UI unchanged');
+  const desktop=makeStatus({MemoTalkNative:{}});
+  desktop('pending','공유 기록 1 / 1053');const stable=label.textContent;
+  desktop('saved','주기 완료 · 이력 1134개');assert.equal(label.textContent,stable);
+  assert.equal(stable,'공유 폴더 연결됨');assert.equal(fileMirror.message,'주기 완료 · 이력 1134개');
+  desktop('error','읽기 실패');assert.equal(label.textContent,'공유 확인 필요');
 });
 
 test('style rules target mobile Modutalk immersion, not all Obsidian notes',()=>{

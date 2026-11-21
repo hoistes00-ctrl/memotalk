@@ -16,6 +16,8 @@
   const PUBLISH_BATCH_MIN=1,PUBLISH_BATCH_MAX=100000,PUBLISH_BATCH_STEP=1;
   // Custom display defaults (no library defaults): higher shows longer memo/actor previews.
   const HISTORY_PREVIEW_CHARS=100,ACTOR_PREVIEW_CHARS=8,ROOM_PREVIEW_CHARS=120;
+  // Default off: one current readable file avoids one Markdown file per edit.
+  const READABLE_REVISIONS_DEFAULT=false;
   const DB='memotalk-peer-sync-v1',CONFIG='memotalk.peer.config',ACTOR='memotalk.peer.actor';
   const encoder=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
   const clone=value=>structuredClone(value);
@@ -45,6 +47,8 @@
         const n=Number(value);settings[key]=key==='publishBatch'?Math.max(PUBLISH_BATCH_MIN,Math.min(PUBLISH_BATCH_MAX,Math.trunc(n))):Math.max(TIMER_MIN,Math.min(TIMER_MAX,n));
       }
     }
+    let readableRevisions=READABLE_REVISIONS_DEFAULT;
+    try{const saved=localStorage.getItem('memotalk.peer.readableRevisions');if(saved!==null)readableRevisions=saved==='true';}catch(_){}
     const client={active:false,busy:false,root:null,groupId:null,replica:null,timer:null,last:null};
     function progress(value){
       client.progress={...value,at:value.at||new Date().toISOString()};
@@ -67,7 +71,7 @@
     const transport={
       async read(path){return read(path);},
       async put(path,data){
-        if(path.startsWith(P.DIRECTORY+'/operations/')){
+        if(readableRevisions&&path.startsWith(P.DIRECTORY+'/operations/')){
           const note=P.readable(JSON.parse(decoder.decode(data)));
           if(note)await transport.put(note.path,note.data);
         }
@@ -94,8 +98,9 @@
     async function capture(){
       const snapshot=getBackend().peerSnapshot(),records=[],assets={};
       for(const room of Object.values(snapshot.data.rooms)){
-        if(room.peerConflict)continue;
-        records.push({entity:{kind:'room',id:room.id},value:clone(room)});
+        const recovered=P.recoverNamedPendingRoom(room);
+        if(recovered.peerConflict)continue;
+        records.push({entity:{kind:'room',id:room.id},value:recovered});
       }
       for(const [rid,messages]of Object.entries(snapshot.data.msgs))for(const msg of messages){
         if(msg.peerConflict)continue;
@@ -104,6 +109,13 @@
         records.push({entity:{kind:'msg',rid,id:msg.id},value});
       }
       return {token:snapshot.token,records,assets,presentation:snapshot.data.peerPresentations?.[client.groupId]};
+    }
+    async function updateCurrentReadable(){
+      const state=await load();if(!state)return;
+      const view=P.project(state);if(view.pending.length)return;
+      const combined=await P.coalesceRooms(view),note=P.currentReadable(combined.records);
+      const existing=await read(note.path);if(!same(existing,note.data))await options.write(client.root,note.path,note.data,existing);
+      client.readableFile={path:note.path,mode:readableRevisions?'current-and-revisions':'current-only',error:null};
     }
     async function hydrate(value){
       const next=clone(value);
@@ -187,6 +199,7 @@
           const groupBytes=await read(P.GROUP_FILE),group=groupBytes&&JSON.parse(decoder.decode(groupBytes));
           if(group?.id!==client.groupId||group.format!=='memotalk-peer-group'||group.version!==P.VERSION)throw error('peer_group_changed',P.GROUP_FILE);
           const result=await client.replica.tick();client.last=result;client.lastCycleAt=new Date().toISOString();client.currentError=null;
+          if(!result.pending&&!result.outgoingPending){try{await updateCurrentReadable();}catch(e){client.readableFile={error:e.code||e.message};}}
           const waiting=result.pending+(result.blocked?.length||0)+(result.outgoingPending||0);
           const foreign=Object.values(result.foreignGroups||{}).reduce((sum,count)=>sum+count,0);
           reportStatus(waiting?'pending':'saved',`${folderLabel(root)} · 양방향 주기 처리 · 이력 ${result.revisions||0}개 · 충돌 ${result.conflicts}건${result.mergedRooms?' · 중복 방 통합 '+result.mergedRooms+'개':''}${result.pending+(result.blocked?.length||0)?' · 수신 미완료 '+(result.pending+(result.blocked?.length||0))+'건':''}${result.outgoingPending?' · 보내기 대기 '+result.outgoingPending+'개':''}${foreign?' · 다른 그룹 원본 보존 '+foreign+'개 (자동 병합 안 함)':''} · 원격 전송 상태는 Obsidian 확인`);
@@ -273,7 +286,10 @@
     }
     function showSettings(){
       const fields=[['poll','공유 폴더 확인 간격','ms',TIMER_MIN,TIMER_MAX,TIMER_STEP,POLL_DEFAULT],['debounce','수정 후 공유 대기 시간','ms',TIMER_MIN,TIMER_MAX,TIMER_STEP,DEBOUNCE_DEFAULT],['publishBatch','받은 기록 확인 전 한 번에 보낼 기록','개',PUBLISH_BATCH_MIN,PUBLISH_BATCH_MAX,PUBLISH_BATCH_STEP,PUBLISH_BATCH_DEFAULT]];
-      const sheet=options.openScrim('<h2>양방향 공유 속도</h2>'+fields.map(([key,label,unit,min,max,step])=>`<p><label>${label} (${unit}) <input data-peer="${key}" type="number" min="${min}" max="${max}" step="${step}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ${unit}</output> <button data-reset="${key}">↺</button></p>`).join('')+'<p>한 번에 보낼 기록 수를 줄이면 대량 보내기 중에도 받은 기록을 더 자주 확인합니다. 변경한 값은 다음 처리 주기부터 적용됩니다. 모두톡이 열린 동안 적용되며 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
+      const sheet=options.openScrim('<h2>양방향 공유·파일 저장</h2>'+fields.map(([key,label,unit,min,max,step])=>`<p><label>${label} (${unit}) <input data-peer="${key}" type="number" min="${min}" max="${max}" step="${step}" value="${settings[key]}"></label> <output data-value="${key}">${settings[key]} ${unit}</output> <button data-reset="${key}">↺</button></p>`).join('')+`<p>읽기용 파일은 기본적으로 readable/current.md 하나만 갱신합니다. 동기화 원본 JSON은 그대로 보존합니다.</p><p><label><input type="checkbox" data-readable-revisions ${readableRevisions?'checked':''}> 수정 이력마다 읽기용 파일도 만들기 (파일 수가 늘어납니다)</label> <button data-readable-reset>↺ 기본값</button></p>`+'<p>한 번에 보낼 기록 수를 줄이면 대량 보내기 중에도 받은 기록을 더 자주 확인합니다. 변경한 값은 다음 처리 주기부터 적용됩니다. 모두톡이 열린 동안 적용되며 두 기기의 Obsidian도 실행 중이어야 전송됩니다. 종료·절전 상태에서는 전달이 지연될 수 있습니다.</p>');
+      const readableInput=sheet.querySelector('[data-readable-revisions]');
+      readableInput.onchange=()=>{readableRevisions=readableInput.checked;localStorage.setItem('memotalk.peer.readableRevisions',String(readableRevisions));schedule();};
+      sheet.querySelector('[data-readable-reset]').onclick=()=>{readableRevisions=READABLE_REVISIONS_DEFAULT;readableInput.checked=readableRevisions;localStorage.removeItem('memotalk.peer.readableRevisions');schedule();};
       const set=(key,value)=>{const field=fields.find(f=>f[0]===key);if(!field||!Number.isFinite(value)||value<field[3]||value>field[4]||(key==='publishBatch'&&!Number.isInteger(value)))return;
         settings[key]=value;localStorage.setItem('memotalk.peer.'+key,String(value));sheet.querySelector('[data-value="'+key+'"]').textContent=value+' '+field[2];schedule();};
       sheet.querySelectorAll('[data-peer]').forEach(input=>input.oninput=()=>{if(input.value!=='')set(input.dataset.peer,Number(input.value));});
@@ -335,7 +351,7 @@
       let record=client.lastError;try{record ||= JSON.parse(localStorage.getItem('memotalk.fileMirror.lastError')||'null');}catch(_){}
       let localData=null;try{const data=getBackend().peerSnapshot().data;localData={rooms:Object.values(data.rooms).filter(r=>!r.peerConflict&&r.kind!=='folder'&&r.kind!=='archive').length,memos:Object.values(data.msgs).flat().filter(m=>!m.peerConflict).length};}catch(_){}
       const blockedReasons={};for(const entry of client.last?.blocked||[])blockedReasons[entry.code]=(blockedReasons[entry.code]||0)+1;
-      const current={capturedAt:new Date().toISOString(),appTitle:typeof document!=='undefined'?document.title:null,active:client.active,busy:client.busy,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,progress:client.progress||null,nativeRequests:window.MemoTalkFS?.diagnostics?.()||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,outgoingPending:client.last?.outgoingPending??null,blockedReasons,foreignGroups:client.last?.foreignGroups||{}};
+      const current={capturedAt:new Date().toISOString(),appTitle:typeof document!=='undefined'?document.title:null,active:client.active,busy:client.busy,selectedFolder:client.root?.name||'',groupId:client.groupId,status:client.status||null,lastAttemptAt:client.lastAttemptAt||null,lastCompletedLocalCycleAt:client.lastCycleAt||null,currentError:client.currentError||null,progress:client.progress||null,nativeRequests:window.MemoTalkFS?.diagnostics?.()||null,localData,receivedRevisions:client.last?.revisions??null,waitingParents:client.last?.pending??null,outgoingPending:client.last?.outgoingPending??null,blockedReasons,foreignGroups:client.last?.foreignGroups||{},readableFile:client.readableFile||null};
       const sheet=options.openScrim('<h2>공유 오류 진단</h2><p>이 화면은 진단을 연 시점의 기록입니다. 최신 값은 아래 새로 고침 버튼으로 확인하세요. 현재 상태와 과거 오류는 다릅니다. 주기 검사 완료는 원격 전송 완료를 뜻하지 않습니다. 경로에 개인 정보가 포함될 수 있습니다.</p><button data-peer-refresh>현재 상태 새로 고침</button><h3>현재 연결·반영 상태</h3><pre data-peer-current style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(JSON.stringify(current,null,2))+'</pre><h3>과거 마지막 오류 기록</h3><pre data-peer-history style="white-space:pre-wrap;overflow-wrap:anywhere">'+options.esc(record?JSON.stringify(record,null,2):'기록된 과거 오류 없음')+'</pre>');
       sheet.querySelector('[data-peer-refresh]').onclick=()=>{options.closeSheet();diagnostics();};
     }

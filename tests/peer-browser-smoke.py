@@ -37,6 +37,7 @@ def main():
             desktop_context = browser.new_context(viewport={'width': 1120, 'height': 800})
             mobile_context = browser.new_context(viewport={'width': 412, 'height': 860})
             for context in (desktop_context, mobile_context):
+                context.route('https://api.github.com/repos/hoistes00-ctrl/memotalk/releases?*', lambda route:route.fulfill(status=200,content_type='application/json',body='[]'))
                 context.add_init_script(path=ROOT / 'tests/peer-browser-init.js')
             desktop, phone = desktop_context.new_page(), mobile_context.new_page()
             errors = []
@@ -107,7 +108,7 @@ def main():
             first.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
             first.get_by_role('button', name='이 기기에서 새 공유 그룹 만들기', exact=True).click()
             first.get_by_role('button', name='폴더 선택', exact=True).click()
-            first.wait_for_function("document.querySelector('#file-sync-state').textContent.includes('양방향 주기 처리')")
+            first.wait_for_function("document.querySelector('#file-sync-state').title.includes('양방향 주기 처리')")
             sharing(second)
             second.get_by_role('button', name='Windows ↔ Android 양방향 공유', exact=True).click()
             second.get_by_role('button', name='다른 기기의 공유 그룹 참여', exact=True).click()

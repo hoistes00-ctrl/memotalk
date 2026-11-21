@@ -1,0 +1,55 @@
+name: Verify and publish Windows 17.5.6
+on:
+  push:
+    branches: [release/sync-17_5_6]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate versions and regression tests
+        run: |
+          python scripts/sync-app-info.py --check
+          python scripts/build-obsidian-view.py --check
+          node tests/check-ui.mjs
+          node --test tests/in-app-updates.test.cjs tests/manual-room-merge-and-sort.test.cjs tests/peer-backend.test.cjs tests/peer-room-merge.test.cjs tests/modutalk-ui-stability.test.cjs tests/obsidian-host.test.cjs tests/room-recovery-readable.test.cjs
+      - name: Build Windows installers
+        working-directory: windows
+        run: |
+          npm ci
+          npx electron-builder --win nsis portable --publish never
+      - name: Exercise real packaged application with disposable data
+        run: node tests/windows-layout-packaged.cjs "windows/dist/win-unpacked/모두톡.exe"
+      - name: Browser regression tests
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+          python tests/peer-browser-smoke.py
+          python tests/manual-room-merge-browser.py
+          python tests/location-title-browser.py
+      - name: Hash and publish Windows-only stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -c "from pathlib import Path;import hashlib;p=Path('windows/dist');names=['Modutalk-Setup-17.5.6-x64.exe','Modutalk-Portable-17.5.6-x64.exe'];p.joinpath('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.joinpath(n).read_bytes()).hexdigest()+'  '+n+'\n' for n in names),encoding='utf-8')"
+          gh release create modutalk-v17.5.6 windows/dist/Modutalk-Setup-17.5.6-x64.exe windows/dist/Modutalk-Portable-17.5.6-x64.exe windows/dist/SHA256SUMS.txt --target "$env:GITHUB_SHA" --title '모두톡 Windows 17.5.6 · 방 이름 복구·상태 표시·파일 절약' --notes-file docs/17.5.6-windows-release.ko.md
+      - name: Publish matching phone Obsidian plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/build-obsidian-view.py --check --plugin-only --zip Modutalk-Obsidian-17.5.6-test.1.zip
+          gh release create modutalk-obsidian-v17.5.6-test.1 Modutalk-Obsidian-17.5.6-test.1.zip obsidian/modutalk-sync-view/main.js obsidian/modutalk-sync-view/app.html obsidian/modutalk-sync-view/styles.css obsidian/modutalk-sync-view/manifest.json --target "$env:GITHUB_SHA" --prerelease --title '모두톡 연동 화면 17.5.6 · 이름 복구와 파일 절약' --notes-file docs/17.5.6-plugin-release.ko.md

@@ -4,19 +4,19 @@
   "repository": "hoistes00-ctrl/memotalk",
   "tag": "modutalk-v17.5.0",
   "files": {
-    "windows": "Modutalk-Setup-17.5.5-x64.exe",
+    "windows": "Modutalk-Setup-17.5.6-x64.exe",
     "android": "Modutalk-Android-17.5.0.apk",
-    "portable": "Modutalk-Portable-17.5.5-x64.exe",
+    "portable": "Modutalk-Portable-17.5.6-x64.exe",
     "obsidian": "Modutalk-Obsidian-17.5.0.zip"
   },
   "platforms": {
     "windows": {
-      "version": "17.5.5",
-      "tag": "modutalk-v17.5.5"
+      "version": "17.5.6",
+      "tag": "modutalk-v17.5.6"
     },
     "portable": {
-      "version": "17.5.5",
-      "tag": "modutalk-v17.5.5"
+      "version": "17.5.6",
+      "tag": "modutalk-v17.5.6"
     }
   }
 }
