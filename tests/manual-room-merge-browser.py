@@ -47,13 +47,14 @@ def main():
           page.locator('.room[data-id="main-room"]').wait_for()
           original=page.evaluate("JSON.parse(localStorage.getItem('memotalk.v1'))")
           page.locator('.room[data-id="main-room"]').click()
-          page.locator('#room-name').get_by_text(TARGET_NAME,exact=True).wait_for()
+          page.locator('#room-name').wait_for()
+          assert page.locator('#room-name').inner_text()==TARGET_NAME
           page.locator('#input').fill('전송 전 초안 유지')
           page.locator('#btn-rmenu').click()
           page.get_by_role('button',name='다른 메모방 내용 합치기 · 원본 보존').click()
           page.locator('#manual-merge-source').select_option('recovery-room')
           page.locator('#manual-merge-check').click()
-          page.locator('#manual-merge-preview').get_by_text('새로 가져올 메모 1개',exact=False).wait_for()
+          page.wait_for_function("document.querySelector('#manual-merge-preview').textContent.includes('새로 가져올 메모 1개')")
           page.locator('#manual-merge-commit').click()
           page.get_by_role('button',name='원본 보존하고 통합').click()
           page.wait_for_function("""() => {
@@ -72,7 +73,7 @@ def main():
           page.get_by_role('button',name='다른 메모방 내용 합치기 · 원본 보존').click()
           page.locator('#manual-merge-source').select_option('recovery-room')
           page.locator('#manual-merge-check').click()
-          page.locator('#manual-merge-preview').get_by_text('새로 가져올 메모 0개',exact=False).wait_for()
+          page.wait_for_function("document.querySelector('#manual-merge-preview').textContent.includes('새로 가져올 메모 0개')")
           assert page.locator('#manual-merge-commit').is_disabled()
           page.locator('#manual-merge-cancel').click()
           page.locator('#btn-msg-sort').click()
@@ -80,6 +81,7 @@ def main():
           rows=page.locator('#msgs .row[data-id]')
           assert rows.count()==2
           assert rows.nth(0).get_attribute('data-id')==added['id']
+          if page.locator('#btn-back').is_visible():page.locator('#btn-back').click()
           page.locator('#btn-room-sort').click()
           page.get_by_role('button',name='방 생성일 · 오래된 순').click()
           ordered=page.locator('.room[data-id]')
