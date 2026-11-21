@@ -36,7 +36,13 @@ downloads['files']['obsidian']='Modutalk-Obsidian-'+INFO['version']+'.zip'
 write('docs/downloads.json',json.dumps(downloads,ensure_ascii=False,indent=2)+'\n')
 plugin_manifest=ROOT/'obsidian/modutalk-sync-view/manifest.json'
 if plugin_manifest.exists():
-    manifest=json.loads(plugin_manifest.read_text(encoding='utf-8'));manifest['version']=INFO['version']
+    manifest=json.loads(plugin_manifest.read_text(encoding='utf-8'))
+    # The Obsidian-only UI plugin may have a newer patch while the installed
+    # Windows/Android apps safely retain their existing version and signing ID.
+    current=tuple(map(int,INFO['version'].split('.')))
+    plugin=tuple(map(int,manifest['version'].split('.')))
+    plugin_only_patch=plugin[:2]==current[:2] and plugin[2]>current[2]
+    if not plugin_only_patch:manifest['version']=INFO['version']
     write('obsidian/modutalk-sync-view/manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
 write('docs/index.html',(ROOT/'docs/modutalk-download.html').read_text(encoding='utf-8'))
 landing=(ROOT/'index.html').read_text(encoding='utf-8').replace('메모톡',INFO['displayName'])

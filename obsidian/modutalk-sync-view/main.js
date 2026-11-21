@@ -174,16 +174,27 @@ class FolderModal extends Modal {
   }
 }
 class ModutalkView extends ItemView {
-  constructor(leaf,plugin){super(leaf);this.plugin=plugin;}
+  constructor(leaf,plugin){super(leaf);this.plugin=plugin;this.ready=false;this.showObsidianChrome=false;}
   getViewType(){return VIEW_TYPE;}
   getDisplayText(){return '모두톡';}
   getIcon(){return 'messages-square';}
   async onOpen(){
+    this.ready=false;this.showObsidianChrome=false;
+    this.plugin.refreshImmersive();
     this.contentEl.empty();this.contentEl.classList.add('modutalk-sync-content');
     if(!this.plugin.data.folder){this.contentEl.createEl('p',{text:'기존 모두톡 공유 폴더를 연결해 주세요.'});this.contentEl.createEl('button',{text:'공유 폴더 선택'}).onclick=()=>new FolderModal(this.app,this.plugin).open();return;}
     try{
       this.host=new VaultHost(this.app.vault,this.plugin.data.folder,{onChange:()=>this.updateStatus()});await this.host.initialize(this.plugin.data.groupId);
-      this.statusEl=this.contentEl.createDiv({cls:'modutalk-sync-status'});this.updateStatus();
+      const controls=this.contentEl.createDiv({cls:'modutalk-sync-controls'});
+      this.statusEl=controls.createSpan({cls:'modutalk-sync-status',attr:{'aria-live':'off'}});
+      const toggle=controls.createEl('button',{cls:'modutalk-sync-menu-toggle',text:'Obsidian 메뉴',attr:{type:'button','aria-label':'Obsidian 메뉴 표시'}});
+      toggle.addEventListener('click',()=>{
+        this.showObsidianChrome=!this.showObsidianChrome;
+        toggle.setText(this.showObsidianChrome?'전체 화면':'Obsidian 메뉴');
+        toggle.setAttribute('aria-label',this.showObsidianChrome?'모두톡 전체 화면으로 돌아가기':'Obsidian 메뉴 표시');
+        this.plugin.refreshImmersive();
+      });
+      this.updateStatus();
       const frame=this.contentEl.createEl('iframe',{cls:'modutalk-sync-frame',attr:{title:'모두톡',sandbox:'allow-scripts allow-same-origin allow-forms allow-downloads allow-modals',allow:'clipboard-read; clipboard-write'}});
       this.frame=frame;frame.__modutalkHost=this.host;
       const config={groupId:this.host.groupId,storagePrefix:'modutalk.sync-view.'+this.host.groupId+'.'};
@@ -191,14 +202,21 @@ class ModutalkView extends ItemView {
       const html=await this.app.vault.adapter.read(this.plugin.manifest.dir+'/app.html');
       if(!html.includes('<!--MODUTALK_BOOTSTRAP-->'))throw Error('화면 파일이 올바르지 않습니다.');
       frame.srcdoc=html.replace('<!--MODUTALK_BOOTSTRAP-->','<script>'+script.replace(/<\/script/gi,'<\\/script')+'</script>');
-    }catch(e){this.host?.dispose();this.contentEl.empty();this.contentEl.createEl('p',{text:'모두톡 연결을 확인하세요: '+e.message});}
+      this.ready=true;this.plugin.refreshImmersive();
+    }catch(e){this.ready=false;this.plugin.refreshImmersive();this.host?.dispose();this.contentEl.empty();this.contentEl.createEl('p',{text:'모두톡 연결을 확인하세요: '+e.message});}
   }
   updateStatus(){
-    if(!this.statusEl)return;let text='Obsidian과 같은 앱에서 자동 동기화';
-    try{const sync=this.app.internalPlugins?.plugins?.sync;if(sync?.enabled&&sync.instance){const state=sync.instance.getStatus();text=state==='syncing'?'Obsidian 전송 중':state==='synced'?'Obsidian 전송 확인됨':'Obsidian 연결 상태: '+state;}}catch(_){}
-    this.statusEl.textContent=this.app.vault.getName()+' / '+this.plugin.data.folder+' · '+text;
+    if(!this.statusEl)return;
+    // Do not flash between "syncing" and "synced" for routine background work.
+    // This is a folder-connection label, not a claim of delivery on other devices.
+    const text='공유 폴더 연결됨';
+    if(this.statusEl.textContent!==text)this.statusEl.textContent=text;
+    this.statusEl.title=this.app.vault.getName()+' / '+this.plugin.data.folder;
   }
-  async onClose(){this.host?.dispose();this.frame?.remove();}
+  async onClose(){
+    this.ready=false;this.plugin.refreshImmersive();
+    this.host?.dispose();this.frame?.remove();
+  }
 }
 class ModutalkSettings extends PluginSettingTab {
   constructor(app,plugin){super(app,plugin);this.plugin=plugin;}
@@ -209,10 +227,18 @@ class ModutalkSettings extends PluginSettingTab {
   }
 }
 class ModutalkPlugin extends Plugin {
+  refreshImmersive(){
+    if(!Platform.isMobileApp)return;
+    const active=this.app.workspace.activeLeaf?.view;
+    const immersive=active instanceof ModutalkView&&active.ready&&!active.showObsidianChrome;
+    document.body.classList.toggle('modutalk-immersive',immersive);
+  }
   async onload(){
     this.data=Object.assign({folder:'',groupId:null},await this.loadData()||{});
     if(!Platform.isMobileApp)return;
     this.registerView(VIEW_TYPE,leaf=>new ModutalkView(leaf,this));
+    this.registerEvent(this.app.workspace.on('active-leaf-change',()=>this.refreshImmersive()));
+    this.registerEvent(this.app.workspace.on('layout-change',()=>this.refreshImmersive()));
     this.addRibbonIcon('messages-square','모두톡',()=>this.openView());
     this.addCommand({id:'open-modutalk',name:'모두톡 열기',callback:()=>this.openView()});
     this.registerObsidianProtocolHandler('modutalk',()=>this.openView());
@@ -221,10 +247,13 @@ class ModutalkPlugin extends Plugin {
   async openView(){
     if(!Platform.isMobileApp){new Notice('PC에서는 설치된 모두톡 앱을 사용하세요.');return;}
     const existing=this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
-    if(existing){await this.app.workspace.revealLeaf(existing);return existing;}
-    const leaf=this.app.workspace.getLeaf('tab');await leaf.setViewState({type:VIEW_TYPE,active:true});await this.app.workspace.revealLeaf(leaf);return leaf;
+    if(existing){await this.app.workspace.revealLeaf(existing);this.refreshImmersive();return existing;}
+    const leaf=this.app.workspace.getLeaf('tab');await leaf.setViewState({type:VIEW_TYPE,active:true});await this.app.workspace.revealLeaf(leaf);this.refreshImmersive();return leaf;
   }
-  onunload(){for(const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))leaf.view.host?.dispose();}
+  onunload(){
+    document.body.classList.remove('modutalk-immersive');
+    for(const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))leaf.view.host?.dispose();
+  }
 }
 ModutalkPlugin.VaultHost=VaultHost;ModutalkPlugin.frameBootstrap=frameBootstrap;ModutalkPlugin.safeFolder=safeFolder;
 module.exports=ModutalkPlugin;
